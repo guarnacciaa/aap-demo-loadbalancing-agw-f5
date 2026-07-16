@@ -1,0 +1,13 @@
+vault.yml
+group_vars/all/demo_variables.yml
+collections/ansible_collections/
+*.retry
+__pycache__/
+*.pyc
+ansible.cfg
+.ansible/
+
+# Execution Environment build artifacts
+context/_build/
+context/files/
+context/context/

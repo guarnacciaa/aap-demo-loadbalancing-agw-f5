@@ -1,0 +1,19 @@
+---
+# Collections bundled inside ee-loadbalancing-agw-f5.
+# Versions pinned to the latest validated/certified releases at time of authoring;
+# bump as needed and rebuild the EE image.
+collections:
+  # CasC dispatch — validated content (not certified).
+  - name: infra.aap_configuration
+
+  # Azure resource management — certified.
+  - name: azure.azcollection
+
+  # F5 BIG-IP LTM pool member management — certified.
+  - name: f5networks.f5_modules
+
+  # Network connection plugins required by f5networks.f5_modules (httpapi transport).
+  - name: ansible.netcommon
+
+  # Explicit Controller object deletion in playbooks/aap_cleanup.yml — certified.
+  - name: ansible.controller

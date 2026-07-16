@@ -1,0 +1,10 @@
+---
+controller_execution_environments:
+  - name: "{{ demo_execution_environment_name }}"
+    organization: "{{ demo_organization_name }}"
+    # Image reference is set in demo_variables.yml after building and pushing to PAH.
+    image: "{{ demo_execution_environment_image }}"
+    # Pull only when the image is not already present — avoids unnecessary pulls
+    # on every job run once the EE is cached on the execution node.
+    pull: missing
+    credential: "{{ hub_registry_credential_name }}"

@@ -1,0 +1,158 @@
+# Description: Deprovision Azure infrastructure created by 01_azure_setup.yml.
+# Requires explicit confirmation via -e demo_teardown_confirm=true.
+#
+# Dual-mode: mirrors 01_azure_setup.yml.
+#   azure_create_network_resources: false — only removes VMs (not networking objects
+#     that pre-existed before the demo).
+#   azure_create_network_resources: true  — removes VMs, NICs, NSG, subnet, VNet,
+#     and resource group (only objects created by the setup playbook).
+#
+# The AGW backend pool entry is removed in both modes before VM deletion.
+#
+# Authenticates via the Service Principal credentials AAP injects (default) or,
+# when azure_auth_mode: msi, via Managed Identity — see the auth_source
+# parameter on each azure_rm_* task below and docs/setup.md.
+#
+# Run command:
+#   ansible-playbook playbooks/setup/01_azure_teardown.yml \
+#     -e demo_teardown_confirm=true --vault-id @prompt
+---
+- name: Deprovision Azure infrastructure for load balancer demo
+  hosts: localhost
+  gather_facts: false
+  collections:
+    - azure.azcollection
+    - ansible.builtin
+
+  vars_files:
+    - ../../vault.yml
+    - ../../group_vars/all/demo_variables.yml
+
+  pre_tasks:
+    - name: Require demo_teardown_confirm=true before removing Azure resources
+      ansible.builtin.assert:
+        that:
+          - demo_teardown_confirm | default(false) | bool
+        fail_msg: >-
+          Refusing to run teardown. Pass -e demo_teardown_confirm=true to
+          remove Azure VMs and networking resources.
+      tags:
+        - always
+
+  tasks:
+    # =========================================================================
+    # REMOVE AGW BACKEND POOL MEMBERSHIP (both modes)
+    # =========================================================================
+    # Clear the backend pool before removing the VM so AGW probes do not
+    # fail against a non-existent backend.
+    - name: Remove AGW VM from Application Gateway backend pool
+      azure.azcollection.azure_rm_appgateway:
+        name: "{{ agw_name }}"
+        resource_group: "{{ azure_resource_group }}"
+        auth_source: "{{ 'msi' if (azure_auth_mode | default('service_principal') == 'msi') else omit }}"
+        backend_address_pools:
+          - name: "{{ agw_backend_pool_name }}"
+            backend_addresses: []
+        state: present
+      ignore_errors: true
+      tags:
+        - azure
+        - agw
+
+    # =========================================================================
+    # REMOVE VMs (both modes)
+    # =========================================================================
+    - name: Remove AGW backend VM
+      azure.azcollection.azure_rm_virtualmachine:
+        name: "{{ agw_vm_hostname }}"
+        resource_group: "{{ azure_resource_group }}"
+        auth_source: "{{ 'msi' if (azure_auth_mode | default('service_principal') == 'msi') else omit }}"
+        state: absent
+        remove_on_absent:
+          - all
+      ignore_errors: true
+      tags:
+        - azure
+        - vms
+
+    - name: Remove F5 pool member VM
+      azure.azcollection.azure_rm_virtualmachine:
+        name: "{{ f5_vm_hostname }}"
+        resource_group: "{{ azure_resource_group }}"
+        auth_source: "{{ 'msi' if (azure_auth_mode | default('service_principal') == 'msi') else omit }}"
+        state: absent
+        remove_on_absent:
+          - all
+      ignore_errors: true
+      tags:
+        - azure
+        - vms
+
+    # =========================================================================
+    # REMOVE NETWORKING (create-from-scratch mode only)
+    # =========================================================================
+    # Skip these tasks when bring-your-own — do not remove pre-existing
+    # networking resources that exist outside the demo.
+
+    - name: Remove NICs
+      azure.azcollection.azure_rm_networkinterface:
+        name: "{{ item }}"
+        resource_group: "{{ azure_resource_group }}"
+        auth_source: "{{ 'msi' if (azure_auth_mode | default('service_principal') == 'msi') else omit }}"
+        state: absent
+      loop:
+        - "nic-{{ agw_vm_hostname }}"
+        - "nic-{{ f5_vm_hostname }}"
+      ignore_errors: true
+      when: azure_create_network_resources | default(false) | bool
+      tags:
+        - azure
+        - network
+
+    - name: Remove network security group
+      azure.azcollection.azure_rm_securitygroup:
+        name: "{{ azure_nsg_name | default('demo-lb-nsg') }}"
+        resource_group: "{{ azure_resource_group }}"
+        auth_source: "{{ 'msi' if (azure_auth_mode | default('service_principal') == 'msi') else omit }}"
+        state: absent
+      ignore_errors: true
+      when: azure_create_network_resources | default(false) | bool
+      tags:
+        - azure
+        - network
+
+    - name: Remove subnet
+      azure.azcollection.azure_rm_subnet:
+        name: "{{ azure_subnet_name | default('demo-lb-subnet') }}"
+        resource_group: "{{ azure_resource_group }}"
+        virtual_network_name: "{{ azure_vnet_name | default('demo-lb-vnet') }}"
+        auth_source: "{{ 'msi' if (azure_auth_mode | default('service_principal') == 'msi') else omit }}"
+        state: absent
+      ignore_errors: true
+      when: azure_create_network_resources | default(false) | bool
+      tags:
+        - azure
+        - network
+
+    - name: Remove virtual network
+      azure.azcollection.azure_rm_virtualnetwork:
+        name: "{{ azure_vnet_name | default('demo-lb-vnet') }}"
+        resource_group: "{{ azure_resource_group }}"
+        auth_source: "{{ 'msi' if (azure_auth_mode | default('service_principal') == 'msi') else omit }}"
+        state: absent
+      ignore_errors: true
+      when: azure_create_network_resources | default(false) | bool
+      tags:
+        - azure
+        - network
+
+  post_tasks:
+    - name: Azure teardown summary
+      ansible.builtin.debug:
+        msg: >-
+          Azure teardown complete.
+          VMs removed: {{ agw_vm_hostname }}, {{ f5_vm_hostname }}.
+          Networking removed: {{ azure_create_network_resources | default(false) | bool }}.
+          To re-deploy, run: Setup - Azure infrastructure from AAP.
+      tags:
+        - always

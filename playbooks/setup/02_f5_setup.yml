@@ -1,0 +1,69 @@
+# Description: Register Azure VM as an F5 BIG-IP LTM pool member.
+# Idempotent; safe to re-run.
+#
+# F5 BIG-IP is bring-your-own (BYO): this playbook assumes an existing
+# LTM pool identified by f5_pool_name and f5_partition in demo_variables.yml.
+# It adds f5_vm_private_ip as a pool member on f5_pool_member_port.
+#
+# Prerequisites:
+#   - F5 BIG-IP reachable at f5_server with f5_username/f5_password credentials.
+#   - Pool f5_pool_name exists in partition f5_partition.
+#
+# Corresponding teardown: 02_f5_teardown.yml
+---
+- name: Register VM as F5 BIG-IP LTM pool member
+  hosts: localhost
+  gather_facts: false
+  collections:
+    - f5networks.f5_modules
+    - ansible.builtin
+
+  vars_files:
+    - ../../vault.yml
+    - ../../group_vars/all/demo_variables.yml
+
+  pre_tasks:
+    - name: Validate F5 connection variables
+      ansible.builtin.assert:
+        that:
+          - f5_server is defined
+          - f5_server != "CHANGE_ME"
+          - f5_pool_name is defined
+          - f5_pool_name != "CHANGE_ME"
+          - f5_vm_private_ip is defined
+          - f5_vm_private_ip != "CHANGE_ME"
+        fail_msg: >-
+          f5_server, f5_pool_name, and f5_vm_private_ip must be set in
+          demo_variables.yml before registering the pool member.
+      tags:
+        - always
+
+  tasks:
+    # Add the VM IP as an F5 LTM pool member.
+    # f5networks.f5_modules uses httpapi transport; the F5 BIG-IP API credential
+    # injected by AAP sets f5_server, f5_username, f5_password as extra vars.
+    - name: Add VM to F5 LTM pool
+      f5networks.f5_modules.bigip_pool_member:
+        pool: "{{ f5_pool_name }}"
+        partition: "{{ f5_partition }}"
+        address: "{{ f5_vm_private_ip }}"
+        port: "{{ f5_pool_member_port }}"
+        state: present
+        provider:
+          server: "{{ f5_server }}"
+          user: "{{ f5_username }}"
+          password: "{{ f5_password }}"
+          validate_certs: false
+      tags:
+        - f5
+
+  post_tasks:
+    - name: F5 pool member registration summary
+      ansible.builtin.debug:
+        msg: >-
+          F5 pool member registered.
+          Pool: {{ f5_pool_name }} / {{ f5_partition }}
+          Member: {{ f5_vm_private_ip }}:{{ f5_pool_member_port }}
+          Next step: run WF - Disconnect VM from load balancer to validate the demo.
+      tags:
+        - always

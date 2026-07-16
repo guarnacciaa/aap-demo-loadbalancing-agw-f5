@@ -1,0 +1,201 @@
+# ============================================================================
+# DEMO CONFIGURATION VARIABLES (EXAMPLE)
+# ============================================================================
+# Copy to demo_variables.yml and edit for your environment.
+# demo_variables.yml is gitignored so it is not overwritten on git pull.
+#
+# This file is organized into two scopes, marked by the banners below:
+#   [ALWAYS REQUIRED]  needed in every deployment, regardless of mode.
+#   [LAB/DEV ONLY]      consumed exclusively by the Setup - */Teardown - *
+#                       job templates and workflows. SKIP these entire
+#                       sections when demo_manage_infrastructure is false
+#                       (customer/PoC deployment against pre-existing
+#                       infrastructure) — leaving them at their defaults is
+#                       fine, they are simply never used.
+# playbooks/aap_config.yml and playbooks/verify.yml enforce this: the
+# [LAB/DEV ONLY] variables are only validated when demo_manage_infrastructure
+# is true, so a customer/PoC deployment is never blocked by them.
+# ============================================================================
+
+demo_no_log: false
+# Set to true in production to hide secrets (credentials, tokens) from job output.
+aap_configuration_secure_logging: false
+
+# --- Deployment mode --- [ALWAYS REQUIRED]
+# true (default): lab / dev / self-demo deployment. CasC creates the full
+#   infrastructure lifecycle: Setup - Azure infrastructure, Setup - F5 pool
+#   member, Teardown - Azure infrastructure, Teardown - F5 pool member, plus
+#   the WF - Demo setup and WF - Demo teardown workflows. Use this when there
+#   is no pre-existing Azure VM/AGW or F5 pool member and you want the demo
+#   to create and register everything itself. All [LAB/DEV ONLY] variables
+#   below must be set if azure_create_network_resources is also true.
+# false: customer / PoC deployment against pre-existing infrastructure. CasC
+#   creates ONLY the scenario job templates (LB - Connectivity check,
+#   LB - Pool status preview, LB - Verify/Drain/Reconnect/Collect) and their
+#   workflows. No provisioning or teardown objects are created in AAP at all,
+#   which removes any risk of accidentally launching a job that creates
+#   duplicate Azure resources or removes the customer's existing F5 pool
+#   member. [LAB/DEV ONLY] variables below can be left at their defaults.
+demo_manage_infrastructure: true
+
+# ============================================================================
+# Vault variable mappings [ALWAYS REQUIRED]
+# ============================================================================
+# Map vault_ prefixed secrets to the plain names used by roles and playbooks.
+# vault.yml must be copied from vault.yml.example and encrypted before use.
+controller_username: "{{ vault_controller_username }}"
+controller_password: "{{ vault_controller_password }}"
+azure_client_id: "{{ vault_azure_client_id }}"
+azure_client_secret: "{{ vault_azure_client_secret }}"
+f5_password: "{{ vault_f5_password }}"
+
+# --- AAP connection --- [ALWAYS REQUIRED]
+# controller_username and controller_password live in vault.yml.
+aap_hostname: CHANGE_ME
+aap_username: "{{ controller_username }}"
+aap_password: "{{ controller_password }}"
+aap_validate_certs: false
+# Controller REST API path prefix when calling through Platform Gateway (AAP 2.5+).
+# Do not use legacy /api/v2/ on the gateway hostname.
+aap_controller_api_prefix: /api/controller/v2
+
+# --- Demo identity --- [ALWAYS REQUIRED]
+demo_organization_name: Multicloud Demo
+demo_organization_description: AGW and F5 load balancer VM management demo
+demo_project_name: Load Balancing AGW F5 Demo
+demo_label_name: loadbalancing-agw-f5
+demo_inventory_name: Demo-Multicloud
+demo_execution_environment_name: ee-loadbalancing-agw-f5
+
+# ============================================================================
+# Git repository configuration [ALWAYS REQUIRED]
+# ============================================================================
+# Choose ONE of the following options based on your Git hosting platform:
+#
+# OPTION A: GitHub
+#   demo_project_scm_url: https://github.com/YOUR_USERNAME/aap-demo-loadbalancing-agw-f5.git
+#
+# OPTION B: Gitea (self-hosted)
+#   demo_project_scm_url: https://your-gitea.example.com/YOUR_USERNAME/aap-demo-loadbalancing-agw-f5.git
+#
+# OPTION C: GitLab
+#   demo_project_scm_url: https://gitlab.com/YOUR_USERNAME/aap-demo-loadbalancing-agw-f5.git
+# ============================================================================
+
+demo_project_scm_url: CHANGE_ME_GIT_REPO_URL
+demo_project_scm_branch: main
+
+# --- Execution environment --- [ALWAYS REQUIRED if using a custom EE]
+# Full image reference after building and pushing to Private Automation Hub.
+# Must match the tag used in podman push (see docs/setup.md Step 3).
+demo_execution_environment_image: CHANGE_ME/ee-loadbalancing-agw-f5:latest
+
+# Private Automation Hub container registry (for Controller EE image pulls).
+# Use the Gateway host or IP without a URL scheme; must match demo_execution_environment_image.
+hub_registry_credential_name: PAH Container Registry
+hub_registry_host: "{{ aap_hostname | regex_replace('^https?://', '') | regex_replace('/$', '') }}"
+
+# ============================================================================
+# Azure connection [ALWAYS REQUIRED]
+# ============================================================================
+# Consumed by the scenario job templates in every deployment mode. In
+# customer/PoC mode (demo_manage_infrastructure: false), azure_resource_group
+# and the AGW/VM identity variables below must match the customer's EXISTING
+# resources exactly.
+# azure_client_id and azure_client_secret are mapped from vault above.
+# azure_subscription_id and azure_tenant_id are non-secret IDs — they belong
+# here, not in vault.yml.
+
+# Authentication mode for every azure.azcollection task (setup, teardown, and
+# demo playbooks). Two values:
+#   service_principal (default): client_id + client_secret + tenant (mapped
+#     from vault above) are injected via the "Azure Service Principal" AAP
+#     credential. Works regardless of where AAP itself is hosted — the
+#     correct choice for customer/PoC deployments and the only choice if AAP
+#     does not run on Azure.
+#   msi: Managed Identity, no client secret stored anywhere. Requires the AAP
+#     execution node/EE container that runs the job to itself be an Azure
+#     resource (VM, VMSS, AKS node, etc.) with a system- or user-assigned
+#     identity enabled and the same RBAC role granted (see docs/setup.md).
+#     Playbooks pass auth_source: msi on every azure_rm_* task when this is
+#     set; azure_client_id/azure_client_secret are then unused (leave the
+#     vault entries at CHANGE_ME).
+azure_auth_mode: service_principal
+
+azure_subscription_id: CHANGE_ME
+azure_tenant_id: CHANGE_ME
+azure_resource_group: CHANGE_ME
+
+# --- Azure — AGW/VM target identity --- [ALWAYS REQUIRED]
+# Consumed by LB - Verify/Drain/Reconnect/Collect and the dry-run templates in
+# every deployment mode. In customer/PoC mode these must name the customer's
+# EXISTING VMs, Application Gateway, and backend pool exactly.
+
+# VM connected to AGW
+agw_vm_hostname: azure-vm-agw01
+agw_vm_private_ip: CHANGE_ME
+
+# Application Gateway
+agw_name: CHANGE_ME
+agw_backend_pool_name: CHANGE_ME
+
+# VM connected to F5
+f5_vm_hostname: azure-vm-f501
+f5_vm_private_ip: CHANGE_ME
+
+# ============================================================================
+# Azure — VM and network provisioning [LAB/DEV ONLY]
+# Consumed exclusively by Setup - Azure infrastructure / Teardown - Azure
+# infrastructure. Leave at defaults when demo_manage_infrastructure: false;
+# they are unused.
+# ============================================================================
+# Set azure_create_network_resources: false (default) to have the setup
+# playbook only validate that the bring-your-own identity variables above are
+# set. Set to true to have playbooks/setup/01_azure_setup.yml create the
+# VNet, subnet, NSG, VMs, and AGW from scratch using the variables below.
+
+azure_create_network_resources: false
+
+# --- Create-from-scratch (azure_create_network_resources: true) ---
+# Required only when azure_create_network_resources is true; otherwise ignored.
+# azure_vnet_name: demo-lb-vnet
+# azure_subnet_name: demo-lb-subnet
+# azure_nsg_name: demo-lb-nsg
+# azure_vnet_address_prefix: "10.10.0.0/16"
+# azure_subnet_address_prefix: "10.10.1.0/24"
+# azure_agw_sku_name: Standard_v2
+# azure_agw_sku_tier: Standard_v2
+# azure_agw_capacity: 1
+# azure_vm_size: Standard_B2s
+# azure_vm_image_publisher: RedHat
+# azure_vm_image_offer: RHEL
+# azure_vm_image_sku: "9-lvm-gen2"
+# azure_vm_admin_username: azureuser
+# azure_vm_ssh_public_key: CHANGE_ME_SSH_PUBLIC_KEY
+
+# ============================================================================
+# F5 BIG-IP [ALWAYS REQUIRED]
+# ============================================================================
+# Consumed by LB - Verify/Drain/Reconnect/Collect and the dry-run templates in
+# every deployment mode. F5 BIG-IP itself is always bring-your-own (this demo
+# never provisions a BIG-IP instance); in customer/PoC mode f5_pool_name must
+# name the customer's EXISTING pool.
+# f5_password is mapped from vault above.
+# f5_server is the management IP or hostname; f5_username is the API user.
+f5_server: CHANGE_ME
+f5_username: admin
+f5_pool_name: CHANGE_ME
+f5_pool_member_port: 80
+f5_partition: Common
+
+# ============================================================================
+# Demo operational settings [ALWAYS REQUIRED]
+# ============================================================================
+drain_wait_timeout: 300
+drain_poll_interval: 15
+
+# ============================================================================
+# Credential names (must match credentials.yml) [ALWAYS REQUIRED]
+# ============================================================================
+azure_credential_name: Azure Service Principal
+f5_credential_name: F5 BIG-IP API

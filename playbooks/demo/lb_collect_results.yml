@@ -1,0 +1,29 @@
+# Description: Collect structured workflow results from prior job artifacts/stats.
+---
+- name: Collect load balancer operation results
+  hosts: localhost
+  gather_facts: true
+  collections:
+    - ansible.builtin
+
+  tasks:
+    - name: Build result summary payload
+      ansible.builtin.set_fact:
+        lb_operation_summary:
+          timestamp: "{{ ansible_date_time.iso8601 }}"
+          workflow_job_id: "{{ tower_job_id | default('local-run') }}"
+          message: Load balancer workflow step completed. Review prior node artifacts for details.
+      tags:
+        - collect
+
+    - name: Publish summary for workflow consumers
+      ansible.builtin.set_stats:
+        data: "{{ lb_operation_summary }}"
+      tags:
+        - collect
+
+    - name: Display result summary
+      ansible.builtin.debug:
+        var: lb_operation_summary
+      tags:
+        - collect

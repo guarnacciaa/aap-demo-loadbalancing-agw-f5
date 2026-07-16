@@ -1,0 +1,153 @@
+# Description: Smoke-test playbook for local validation (syntax and module wiring).
+# Does not create or destroy any resources; checks required variables and
+# collection imports. Run this after copying demo_variables.yml.example to
+# demo_variables.yml and filling in all CHANGE_ME placeholders.
+---
+- name: Verify load balancing demo prerequisites
+  hosts: localhost
+  gather_facts: false
+  collections:
+    - ansible.builtin
+
+  tasks:
+    - name: Confirm required AAP and demo variables are defined
+      ansible.builtin.assert:
+        that:
+          - demo_organization_name is defined
+          - demo_project_name is defined
+        fail_msg: Copy demo_variables.yml.example to demo_variables.yml and set required values.
+      tags:
+        - verify
+
+    # Required in every deployment mode: the always-deployed LB - * scenario
+    # templates and both dry-run templates look up the target VM/AGW/F5 pool
+    # by these values (see the [ALWAYS REQUIRED] sections in
+    # demo_variables.yml.example). Only validated inside 01_azure_setup.yml's
+    # own bring-your-own check until now — which never runs at all in
+    # customer/PoC mode.
+    - name: Confirm core load balancer identity variables (required in every mode)
+      ansible.builtin.assert:
+        that:
+          - azure_resource_group is defined
+          - azure_resource_group != "CHANGE_ME"
+          - agw_name is defined
+          - agw_name != "CHANGE_ME"
+          - agw_backend_pool_name is defined
+          - agw_backend_pool_name != "CHANGE_ME"
+          - agw_vm_private_ip is defined
+          - agw_vm_private_ip != "CHANGE_ME"
+          - f5_server is defined
+          - f5_server != "CHANGE_ME"
+          - f5_pool_name is defined
+          - f5_pool_name != "CHANGE_ME"
+          - f5_vm_private_ip is defined
+          - f5_vm_private_ip != "CHANGE_ME"
+        fail_msg: >-
+          Core load balancer identity variables are incomplete. Check
+          demo_variables.yml (azure_resource_group, agw_name,
+          agw_backend_pool_name, agw_vm_private_ip, f5_server, f5_pool_name,
+          f5_vm_private_ip).
+      tags:
+        - verify
+
+    # credentials.yml gates whether the "Azure Service Principal" credential
+    # object is even created in AAP on this variable (state: absent when left
+    # at CHANGE_ME). A missing subscription ID here means aap_config.yml would
+    # silently skip creating that credential, and every azure.azcollection
+    # task would fail at runtime with "Failed to get credentials".
+    - name: Confirm azure_subscription_id is set (required for the Azure credential to exist)
+      ansible.builtin.assert:
+        that:
+          - azure_subscription_id is defined
+          - azure_subscription_id != "CHANGE_ME"
+        fail_msg: >-
+          Set azure_subscription_id in demo_variables.yml. Leaving it at
+          CHANGE_ME makes credentials.yml skip populating the "Azure Service
+          Principal" credential inputs entirely.
+      tags:
+        - verify
+
+    # azure_auth_mode is orthogonal to demo_manage_infrastructure: it applies
+    # to every azure.azcollection task in every mode (see demo_variables.yml.example).
+    - name: Confirm azure_auth_mode is a supported value
+      ansible.builtin.assert:
+        that:
+          - azure_auth_mode | default('service_principal') in ['service_principal', 'msi']
+        fail_msg: >-
+          azure_auth_mode must be "service_principal" or "msi" in demo_variables.yml.
+      tags:
+        - verify
+
+    # Only required when azure_auth_mode is the default (service_principal);
+    # unused and therefore never checked with Managed Identity (azure_auth_mode: msi).
+    - name: Confirm Azure Service Principal secrets when azure_auth_mode is service_principal
+      ansible.builtin.assert:
+        that:
+          - azure_client_id is defined
+          - azure_client_id != "CHANGE_ME"
+          - azure_client_secret is defined
+          - azure_client_secret != "CHANGE_ME"
+        fail_msg: >-
+          Set vault_azure_client_id and vault_azure_client_secret in vault.yml,
+          or set azure_auth_mode: msi in demo_variables.yml if AAP's execution
+          nodes run on Azure with a Managed Identity attached.
+      when: azure_auth_mode | default('service_principal') == 'service_principal'
+      tags:
+        - verify
+
+    # Only required in lab/dev mode with create-from-scratch enabled; this
+    # variable is exclusively consumed by Setup - Azure infrastructure (see
+    # the [LAB/DEV ONLY] section in demo_variables.yml.example) and is never
+    # read otherwise, so this check is skipped when either flag is false.
+    - name: Confirm Azure VM provisioning variables (lab/dev create-from-scratch only)
+      ansible.builtin.assert:
+        that:
+          - azure_vm_ssh_public_key is defined
+          - azure_vm_ssh_public_key != "CHANGE_ME_SSH_PUBLIC_KEY"
+        fail_msg: >-
+          demo_manage_infrastructure and azure_create_network_resources are
+          both true: set azure_vm_ssh_public_key in demo_variables.yml, or set
+          demo_manage_infrastructure: false / azure_create_network_resources:
+          false if you are deploying against pre-existing infrastructure.
+      when: >-
+        (demo_manage_infrastructure | default(true) | bool) and
+        (azure_create_network_resources | default(false) | bool)
+      tags:
+        - verify
+
+    - name: Confirm infra.aap_configuration collection is installed
+      ansible.builtin.command:
+        cmd: ansible-galaxy collection list infra.aap_configuration
+      register: casc_collection
+      changed_when: false
+      failed_when: casc_collection.rc != 0
+      tags:
+        - verify
+
+    - name: Confirm azure.azcollection collection is installed
+      ansible.builtin.command:
+        cmd: ansible-galaxy collection list azure.azcollection
+      register: azure_collection
+      changed_when: false
+      failed_when: azure_collection.rc != 0
+      tags:
+        - verify
+
+    - name: Confirm f5networks.f5_modules collection is installed
+      ansible.builtin.command:
+        cmd: ansible-galaxy collection list f5networks.f5_modules
+      register: f5_collection
+      changed_when: false
+      failed_when: f5_collection.rc != 0
+      tags:
+        - verify
+
+    - name: Report verification status
+      ansible.builtin.debug:
+        msg: >-
+          Prerequisite checks passed.
+          {{ 'Run WF - Demo setup to provision infrastructure and register the F5 pool member, then launch WF - Disconnect VM from load balancer or WF - Reconnect VM to load balancer.'
+             if (demo_manage_infrastructure | default(true) | bool)
+             else 'demo_manage_infrastructure is false: launch WF - Disconnect VM from load balancer or WF - Reconnect VM to load balancer directly against the existing VM/AGW/F5 pool.' }}
+      tags:
+        - verify

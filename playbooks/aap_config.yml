@@ -1,0 +1,184 @@
+# Description: Apply AAP Configuration as Code for the AGW/F5 load balancer demo.
+# Run from the artifact root after copying demo_variables.yml.example and vault.yml.
+# Safe to re-run; infra.aap_configuration dispatch reconciles desired state.
+---
+- name: Apply load balancing AGW F5 demo configuration to AAP
+  hosts: localhost
+  gather_facts: false
+  collections:
+    - infra.aap_configuration
+    - ansible.controller
+    - ansible.builtin
+  vars_files:
+    - ../vault.yml
+    - ../group_vars/all/demo_variables.yml
+  pre_tasks:
+    - name: Validate required variables before CasC apply
+      ansible.builtin.assert:
+        that:
+          - aap_hostname is defined
+          - aap_hostname != "CHANGE_ME"
+          - demo_project_scm_url is defined
+          - demo_project_scm_url != "CHANGE_ME_GIT_REPO_URL"
+          - aap_username is defined
+          - aap_password is defined
+        fail_msg: >-
+          Configure aap_hostname and demo_project_scm_url in demo_variables.yml
+          and controller credentials in vault.yml before running CasC.
+      tags:
+        - always
+
+    - name: Validate azure_auth_mode is a supported value
+      ansible.builtin.assert:
+        that:
+          - azure_auth_mode | default('service_principal') in ['service_principal', 'msi']
+        fail_msg: >-
+          azure_auth_mode must be "service_principal" or "msi". See
+          demo_variables.yml.example for what each mode requires.
+      tags:
+        - always
+
+    # Only enforced when azure_auth_mode is the default (service_principal):
+    # the client_id/secret vault entries are unused with Managed Identity, so
+    # a msi deployment must not be blocked by leaving them at CHANGE_ME.
+    - name: Validate Azure Service Principal secrets when azure_auth_mode is service_principal
+      ansible.builtin.assert:
+        that:
+          - azure_client_id is defined
+          - azure_client_id != "CHANGE_ME"
+          - azure_client_secret is defined
+          - azure_client_secret != "CHANGE_ME"
+        fail_msg: >-
+          azure_auth_mode is "service_principal" (the default): set
+          vault_azure_client_id and vault_azure_client_secret in vault.yml.
+          If AAP's execution nodes run on Azure with a Managed Identity
+          attached, set azure_auth_mode: msi instead and skip these secrets.
+      when: azure_auth_mode | default('service_principal') == 'service_principal'
+      tags:
+        - always
+
+    # Always required regardless of deployment mode: the always-deployed
+    # LB - * scenario templates and both dry-run templates consume these
+    # directly via extra_vars/group_vars, but until now they were only
+    # validated inside 01_azure_setup.yml's own bring-your-own check — which
+    # never runs at all in customer/PoC mode (demo_manage_infrastructure:
+    # false), since Setup - Azure infrastructure is not even deployed then.
+    - name: Validate core load balancer identity variables
+      ansible.builtin.assert:
+        that:
+          - azure_resource_group is defined
+          - azure_resource_group != "CHANGE_ME"
+          - agw_name is defined
+          - agw_name != "CHANGE_ME"
+          - agw_backend_pool_name is defined
+          - agw_backend_pool_name != "CHANGE_ME"
+          - agw_vm_private_ip is defined
+          - agw_vm_private_ip != "CHANGE_ME"
+          - f5_server is defined
+          - f5_server != "CHANGE_ME"
+          - f5_pool_name is defined
+          - f5_pool_name != "CHANGE_ME"
+          - f5_vm_private_ip is defined
+          - f5_vm_private_ip != "CHANGE_ME"
+        fail_msg: >-
+          Set azure_resource_group, agw_name, agw_backend_pool_name,
+          agw_vm_private_ip, f5_server, f5_pool_name, and f5_vm_private_ip in
+          demo_variables.yml — every LB - * scenario template requires them
+          regardless of demo_manage_infrastructure. If
+          demo_manage_infrastructure: true and azure_create_network_resources:
+          true, run Setup - Azure infrastructure first and copy the values it
+          publishes via set_stats into demo_variables.yml.
+      tags:
+        - always
+
+    # Only enforced in lab/dev mode with create-from-scratch enabled: this
+    # variable is exclusively consumed by 01_azure_setup.yml when
+    # azure_create_network_resources is also true, so a customer/PoC
+    # deployment (or a lab/dev deployment reusing existing VMs) is never
+    # blocked by leaving it at its example default.
+    - name: Validate lab/dev VM provisioning variables
+      ansible.builtin.assert:
+        that:
+          - azure_vm_ssh_public_key is defined
+          - azure_vm_ssh_public_key != "CHANGE_ME_SSH_PUBLIC_KEY"
+        fail_msg: >-
+          demo_manage_infrastructure and azure_create_network_resources are
+          both true: set azure_vm_ssh_public_key in demo_variables.yml so
+          Setup - Azure infrastructure can provision the VMs from scratch.
+      when: >-
+        (demo_manage_infrastructure | default(true) | bool) and
+        (azure_create_network_resources | default(false) | bool)
+      tags:
+        - always
+
+    # demo_manage_infrastructure=true (lab/dev): merge in the provisioning and
+    # teardown job/workflow templates from job_templates_infra.yml and
+    # workflow_templates_infra.yml. When false (customer/PoC deployment on
+    # pre-existing infrastructure), controller_templates and
+    # controller_workflows keep only the scenario objects defined in
+    # job_templates.yml / workflow_templates.yml, so AAP never gets objects
+    # capable of creating or destroying the Azure infrastructure or the F5
+    # pool member.
+    - name: Merge infrastructure lifecycle job and workflow templates in lab/dev mode
+      ansible.builtin.set_fact:
+        controller_templates: "{{ controller_templates + controller_templates_infra }}"
+        controller_workflows: "{{ controller_workflows + controller_workflows_infra }}"
+      when: demo_manage_infrastructure | default(true) | bool
+      tags:
+        - always
+
+  roles:
+    # NOTE: infra.aap_configuration is validated content (not certified).
+    - role: infra.aap_configuration.dispatch
+      tags:
+        - all
+        - organizations
+        - credentials
+        - inventories
+        - projects
+        - execution_environments
+        - labels
+        - hosts
+        - groups
+        - job_templates
+        - workflow_job_templates
+
+  post_tasks:
+    # Dispatch may create the EE before the registry credential is fully linked.
+    # Reconcile so Controller pulls respect validate_certs: false on self-signed PAH.
+    - name: Wire registry credential to custom execution environment
+      ansible.controller.execution_environment:
+        name: "{{ demo_execution_environment_name }}"
+        organization: "{{ demo_organization_name }}"
+        image: "{{ demo_execution_environment_image }}"
+        pull: missing
+        credential: "{{ hub_registry_credential_name }}"
+        controller_host: "https://{{ aap_hostname }}"
+        controller_username: "{{ aap_username }}"
+        controller_password: "{{ aap_password }}"
+        validate_certs: "{{ aap_validate_certs }}"
+        state: present
+      when: demo_execution_environment_image is not match('^CHANGE_ME/')
+      tags:
+        - always
+        - execution_environments
+
+    # Dispatch creates child inventories first, but input_inventories on the
+    # constructed parent is not always applied on initial create. Reconcile
+    # after dispatch so Demo-Multicloud aggregates Azure-Resources and AWS-Resources.
+    - name: Wire constructed inventory input sources
+      ansible.controller.inventory:
+        name: "{{ demo_inventory_name }}"
+        organization: "{{ demo_organization_name }}"
+        kind: constructed
+        input_inventories:
+          - Azure-Resources
+          - AWS-Resources
+        controller_host: "https://{{ aap_hostname }}"
+        controller_username: "{{ aap_username }}"
+        controller_password: "{{ aap_password }}"
+        validate_certs: "{{ aap_validate_certs }}"
+        state: present
+      tags:
+        - always
+        - inventories

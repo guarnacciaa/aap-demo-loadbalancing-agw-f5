@@ -1,0 +1,4 @@
+---
+controller_labels:
+  - name: "{{ demo_label_name }}"
+    organization: "{{ demo_organization_name }}"

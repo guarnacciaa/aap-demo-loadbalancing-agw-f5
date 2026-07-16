@@ -1,0 +1,140 @@
+---
+# Scenario job templates: always deployed regardless of demo_manage_infrastructure.
+# They only operate against a pre-existing VM's AGW/F5 pool membership; they
+# never create or destroy Azure networking, VMs, or the F5 pool itself, so
+# they are safe in both lab/dev (self-provisioned) and customer/PoC
+# (bring-your-own) deployments.
+# Dispatch role reads controller_templates (not controller_job_templates).
+controller_templates:
+  - name: LB - Connectivity check (dry run)
+    organization: "{{ demo_organization_name }}"
+    inventory: "{{ demo_inventory_name }}"
+    project: "{{ demo_project_name }}"
+    playbook: playbooks/demo/lb_precheck_connectivity.yml
+    execution_environment: "{{ demo_execution_environment_name }}"
+    ask_variables_on_launch: true
+    extra_vars:
+      azure_resource_group: "{{ azure_resource_group }}"
+      agw_name: "{{ agw_name }}"
+      # Without this, the azure_rm_appgateway_info task's auth_source Jinja
+      # always resolves to the service_principal branch (silently ignoring a
+      # real azure_auth_mode: msi), because group_vars/all/ is not reliably
+      # auto-loaded for playbooks/demo/*.yml when AAP supplies its own
+      # generated inventory instead of this project's inventory.yml.
+      azure_auth_mode: "{{ azure_auth_mode }}"
+      f5_pool_name: "{{ f5_pool_name }}"
+      f5_partition: "{{ f5_partition }}"
+    credentials:
+      - "{{ azure_credential_name }}"
+      - "{{ f5_credential_name }}"
+    labels:
+      - "{{ demo_label_name }}"
+
+  - name: LB - Pool status preview (dry run)
+    organization: "{{ demo_organization_name }}"
+    inventory: "{{ demo_inventory_name }}"
+    project: "{{ demo_project_name }}"
+    playbook: playbooks/demo/lb_pool_preview.yml
+    execution_environment: "{{ demo_execution_environment_name }}"
+    ask_variables_on_launch: true
+    extra_vars:
+      lb_backend_type: agw
+      target_vm_ip: "{{ agw_vm_private_ip }}"
+      azure_resource_group: "{{ azure_resource_group }}"
+      agw_name: "{{ agw_name }}"
+      agw_backend_pool_name: "{{ agw_backend_pool_name }}"
+      # See the comment on LB - Connectivity check above: this playbook also
+      # branches on azure_auth_mode and must receive it via extra_vars.
+      azure_auth_mode: "{{ azure_auth_mode }}"
+      f5_pool_name: "{{ f5_pool_name }}"
+      f5_partition: "{{ f5_partition }}"
+      f5_pool_member_port: "{{ f5_pool_member_port }}"
+    credentials:
+      - "{{ azure_credential_name }}"
+      - "{{ f5_credential_name }}"
+    labels:
+      - "{{ demo_label_name }}"
+
+  - name: LB - Verify VM in pool
+    organization: "{{ demo_organization_name }}"
+    inventory: "{{ demo_inventory_name }}"
+    project: "{{ demo_project_name }}"
+    playbook: playbooks/demo/lb_verify_presence.yml
+    execution_environment: "{{ demo_execution_environment_name }}"
+    ask_variables_on_launch: true
+    extra_vars:
+      lb_backend_type: agw
+      target_vm_hostname: "{{ agw_vm_hostname }}"
+      target_vm_ip: "{{ agw_vm_private_ip }}"
+      # See the comment on LB - Connectivity check above: this playbook also
+      # branches on azure_auth_mode and must receive it via extra_vars.
+      azure_auth_mode: "{{ azure_auth_mode }}"
+    credentials:
+      - "{{ azure_credential_name }}"
+      - "{{ f5_credential_name }}"
+    labels:
+      - "{{ demo_label_name }}"
+
+  - name: LB - Verify connection status
+    organization: "{{ demo_organization_name }}"
+    inventory: "{{ demo_inventory_name }}"
+    project: "{{ demo_project_name }}"
+    playbook: playbooks/demo/lb_verify_status.yml
+    execution_environment: "{{ demo_execution_environment_name }}"
+    ask_variables_on_launch: true
+    extra_vars:
+      lb_backend_type: agw
+      target_vm_hostname: "{{ agw_vm_hostname }}"
+      target_vm_ip: "{{ agw_vm_private_ip }}"
+      azure_auth_mode: "{{ azure_auth_mode }}"
+    credentials:
+      - "{{ azure_credential_name }}"
+      - "{{ f5_credential_name }}"
+    labels:
+      - "{{ demo_label_name }}"
+
+  - name: LB - Drain and disconnect VM
+    organization: "{{ demo_organization_name }}"
+    inventory: "{{ demo_inventory_name }}"
+    project: "{{ demo_project_name }}"
+    playbook: playbooks/demo/lb_drain_disconnect.yml
+    execution_environment: "{{ demo_execution_environment_name }}"
+    ask_variables_on_launch: true
+    extra_vars:
+      lb_backend_type: agw
+      target_vm_hostname: "{{ agw_vm_hostname }}"
+      target_vm_ip: "{{ agw_vm_private_ip }}"
+      drain_wait_timeout: "{{ drain_wait_timeout }}"
+      azure_auth_mode: "{{ azure_auth_mode }}"
+    credentials:
+      - "{{ azure_credential_name }}"
+      - "{{ f5_credential_name }}"
+    labels:
+      - "{{ demo_label_name }}"
+
+  - name: LB - Reconnect VM to pool
+    organization: "{{ demo_organization_name }}"
+    inventory: "{{ demo_inventory_name }}"
+    project: "{{ demo_project_name }}"
+    playbook: playbooks/demo/lb_reconnect.yml
+    execution_environment: "{{ demo_execution_environment_name }}"
+    ask_variables_on_launch: true
+    extra_vars:
+      lb_backend_type: agw
+      target_vm_hostname: "{{ agw_vm_hostname }}"
+      target_vm_ip: "{{ agw_vm_private_ip }}"
+      azure_auth_mode: "{{ azure_auth_mode }}"
+    credentials:
+      - "{{ azure_credential_name }}"
+      - "{{ f5_credential_name }}"
+    labels:
+      - "{{ demo_label_name }}"
+
+  - name: LB - Collect results
+    organization: "{{ demo_organization_name }}"
+    inventory: "{{ demo_inventory_name }}"
+    project: "{{ demo_project_name }}"
+    playbook: playbooks/demo/lb_collect_results.yml
+    execution_environment: "{{ demo_execution_environment_name }}"
+    labels:
+      - "{{ demo_label_name }}"

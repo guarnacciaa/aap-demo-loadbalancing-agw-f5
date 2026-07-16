@@ -1,0 +1,109 @@
+# Description: Read-only preview of the AGW backend pool or F5 pool member
+# state for the target VM selected in the workflow survey (lb_backend_type,
+# target_vm_ip — same variables LB - Verify/Drain/Reconnect consume). Reports
+# whether the target is currently present (relevant before drain/disconnect)
+# or absent (relevant before reconnect), without asserting or making any
+# change. Never creates, modifies, or deletes any Azure or F5 object — safe
+# to run repeatedly, including against a customer's pre-existing load
+# balancer configuration. Run this (or launch
+# LB - Pool status preview (dry run) in AAP) before either demo workflow to
+# confirm what it will actually do. It also runs automatically as the second
+# node of both workflows (after LB - Connectivity check), so a wrong
+# hostname/IP fails fast — as an informational report, not a hard error —
+# before any drain/disconnect/reconnect task runs.
+---
+- name: Preview load balancer pool state for the target VM
+  hosts: localhost
+  gather_facts: false
+  collections:
+    - azure.azcollection
+    - f5networks.f5_modules
+    - ansible.builtin
+
+  vars:
+    lb_backend_type: "{{ lb_backend_type | mandatory }}"
+    target_vm_ip: "{{ target_vm_ip | mandatory }}"
+
+  tasks:
+    - name: Preview Application Gateway backend pool membership
+      when: lb_backend_type == 'agw'
+      block:
+        - name: Retrieve Application Gateway configuration
+          azure.azcollection.azure_rm_appgateway_info:
+            resource_group: "{{ azure_resource_group }}"
+            name: "{{ agw_name }}"
+            auth_source: "{{ 'msi' if (azure_auth_mode | default('service_principal') == 'msi') else omit }}"
+          register: agw_info
+          tags:
+            - agw
+            - preview
+
+        - name: Resolve current backend pool addresses for the configured pool
+          ansible.builtin.set_fact:
+            agw_pool_addresses: >-
+              {{
+                (
+                  agw_info.applicationgateways[0].backend_address_pools
+                  | selectattr('name', 'equalto', agw_backend_pool_name)
+                  | list | first
+                ).backend_addresses | default([])
+              }}
+          tags:
+            - agw
+            - preview
+
+        - name: Report AGW pool preview
+          ansible.builtin.debug:
+            msg:
+              - >-
+                AGW pool {{ agw_backend_pool_name }} currently has
+                {{ agw_pool_addresses | length }} backend address(es):
+                {{ agw_pool_addresses | map(attribute='ip_address') | list | join(', ') }}
+              - >-
+                Target VM IP {{ target_vm_ip }} is currently
+                {{ 'PRESENT — drain/disconnect will remove it' if (agw_pool_addresses | selectattr('ip_address', 'equalto', target_vm_ip) | list | length > 0) else 'ABSENT — reconnect will add it' }}.
+          tags:
+            - agw
+            - preview
+
+    - name: Preview F5 pool member state
+      when: lb_backend_type == 'f5'
+      block:
+        # status_code accepts both 200 (member exists) and 404 (member
+        # absent) so this stays a report, not a failure, in either case.
+        - name: Query F5 pool member via iControl REST API
+          ansible.builtin.uri:
+            url: >-
+              https://{{ f5_server }}/mgmt/tm/ltm/pool/~{{ f5_partition }}~{{ f5_pool_name }}/members/~{{ f5_partition }}~{{ target_vm_ip }}:{{ f5_pool_member_port }}
+            method: GET
+            user: "{{ f5_username }}"
+            password: "{{ f5_password }}"
+            force_basic_auth: true
+            validate_certs: false
+            status_code:
+              - 200
+              - 404
+          register: f5_member_preview
+          tags:
+            - f5
+            - preview
+
+        - name: Report F5 pool member preview
+          ansible.builtin.debug:
+            msg: >-
+              F5 pool member {{ target_vm_ip }}:{{ f5_pool_member_port }} in
+              {{ f5_pool_name }}/{{ f5_partition }} is currently
+              {{ ('PRESENT (session: ' + (f5_member_preview.json.session | default('unknown')) + ') — drain/disconnect will change it')
+                 if f5_member_preview.status == 200
+                 else 'ABSENT — reconnect will add it' }}.
+          tags:
+            - f5
+            - preview
+
+    - name: Publish preview summary for downstream workflow nodes
+      ansible.builtin.set_stats:
+        data:
+          lb_preview_backend_type: "{{ lb_backend_type }}"
+          lb_preview_target_vm_ip: "{{ target_vm_ip }}"
+      tags:
+        - preview

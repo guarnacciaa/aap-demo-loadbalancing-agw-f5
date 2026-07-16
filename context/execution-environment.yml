@@ -1,0 +1,59 @@
+# Execution Environment definition for ee-loadbalancing-agw-f5.
+# Requires ansible-builder >= 3.x.
+#
+# Build and push:
+#   ansible-builder build -f context/execution-environment.yml \
+#     -t <PAH-HOST>/ee-loadbalancing-agw-f5:latest \
+#     --container-runtime podman
+#   podman login <PAH-HOST> --tls-verify=false
+#   podman push <PAH-HOST>/ee-loadbalancing-agw-f5:latest --tls-verify=false
+---
+version: 3
+
+images:
+  base_image:
+    # ee-supported-rhel9 provides Python 3.12 and a richer runtime than ee-minimal.
+    name: registry.redhat.io/ansible-automation-platform-27/ee-supported-rhel9:latest
+
+options:
+  # ee-supported-rhel9 ships microdnf, not full dnf; override so the assemble
+  # script calls the correct binary.
+  package_manager_path: /usr/bin/microdnf
+
+dependencies:
+  galaxy: requirements.yml
+  python:
+    # Azure SDK packages required by azure.azcollection tasks.
+    - azure-identity
+    - azure-mgmt-network
+    - azure-mgmt-compute
+    - azure-mgmt-resource
+    # awscli installed via pip — not available as an RPM in RHEL9 repos.
+    - msrest
+    - msrestazure
+
+additional_build_files:
+  # Inject ansible.cfg so ansible-galaxy can authenticate to Automation Hub
+  # during the galaxy stage.  Removed from the final image to avoid shipping
+  # Hub tokens.
+  - src: ../ansible.cfg
+    dest: configs
+
+additional_build_steps:
+  prepend_galaxy:
+    - COPY _build/configs/ansible.cfg /etc/ansible/ansible.cfg
+
+  prepend_builder:
+    # Pin Python to 3.12 so pip installs match the final image Python version.
+    - ENV PYCMD=/usr/bin/python3.12
+    # Install C headers needed by Python packages with native extensions
+    # (azure-mgmt-network pulls cryptography → requires gcc + openssl-devel).
+    - RUN microdnf install -y gcc python3.12-devel openssl-devel && microdnf clean all
+
+  prepend_final:
+    # Mirror PYCMD so runtime module execution uses the same Python as the build.
+    - ENV PYCMD=/usr/bin/python3.12
+
+  append_final:
+    # Remove ansible.cfg from the final image to avoid shipping Hub credentials.
+    - RUN rm -f /etc/ansible/ansible.cfg

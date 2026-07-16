@@ -1,0 +1,40 @@
+# ============================================================================
+# VAULT SECRETS (EXAMPLE)
+# ============================================================================
+# Copy to vault.yml, fill in real values, then encrypt:
+#   cp vault.yml.example vault.yml && ansible-vault encrypt vault.yml
+# vault.yml is gitignored — never commit real credentials.
+# All vault_ variables are mapped to plain names in demo_variables.yml.
+#
+# This file is organized into two scopes, marked by the banners below:
+#   [ALWAYS REQUIRED]  needed in every deployment, regardless of mode.
+#   [LAB/DEV ONLY]      consumed exclusively by the Setup - */Teardown - *
+#                       job templates and workflows. SKIP this section when
+#                       demo_manage_infrastructure is false (customer/PoC
+#                       deployment against pre-existing infrastructure) —
+#                       leaving it at CHANGE_ME is fine, it is simply never
+#                       used.
+# playbooks/aap_config.yml and playbooks/verify.yml enforce this: no secret
+# in this demo is exclusively lab/dev-only today (the Azure and F5
+# credentials below are attached to setup, teardown, and scenario job
+# templates alike), so every entry currently lands in [ALWAYS REQUIRED].
+# ============================================================================
+---
+
+# --- AAP Controller credentials --- [ALWAYS REQUIRED]
+vault_controller_username: CHANGE_ME
+vault_controller_password: CHANGE_ME
+
+# --- Azure Service Principal --- [ALWAYS REQUIRED when azure_auth_mode: service_principal]
+# Required by 01_azure_setup.yml, 01_azure_teardown.yml, and every
+# Azure-facing job template in every deployment mode — but only when
+# azure_auth_mode in demo_variables.yml is "service_principal" (the
+# default). Not read at all when azure_auth_mode: msi (Managed Identity);
+# leave both at CHANGE_ME in that case, see demo_variables.yml.example.
+vault_azure_client_id: CHANGE_ME
+vault_azure_client_secret: CHANGE_ME
+
+# --- F5 BIG-IP API --- [ALWAYS REQUIRED]
+# Required by 02_f5_setup.yml, 02_f5_teardown.yml, and every F5-facing job
+# template in every deployment mode. F5 BIG-IP is always bring-your-own.
+vault_f5_password: CHANGE_ME

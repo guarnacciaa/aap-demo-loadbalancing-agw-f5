@@ -1,0 +1,87 @@
+# Description: Read-only credential and connectivity check for Azure
+# Application Gateway and F5 BIG-IP. Confirms the injected Azure Service
+# Principal (or Managed Identity) and F5 BIG-IP API credentials can
+# authenticate and reach their respective backends, before any presence,
+# status, drain, or reconnect task runs. Deliberately does not reference
+# lb_backend_type or a target VM, so it stays useful even when the workflow
+# survey values are misconfigured — that specific check belongs to
+# LB - Pool status preview (dry run), which runs immediately after this one
+# in both demo workflows.
+---
+- name: Check Azure Application Gateway and F5 BIG-IP credentials and connectivity
+  hosts: localhost
+  gather_facts: false
+  collections:
+    - azure.azcollection
+    - ansible.builtin
+
+  pre_tasks:
+    - name: Validate required connectivity check variables
+      ansible.builtin.assert:
+        that:
+          - azure_resource_group is defined
+          - azure_resource_group != "CHANGE_ME"
+          - agw_name is defined
+          - agw_name != "CHANGE_ME"
+          - f5_server is defined
+          - f5_server != "CHANGE_ME"
+        fail_msg: >-
+          Set azure_resource_group, agw_name, and f5_server in
+          demo_variables.yml and re-apply aap_config.yml before running
+          connectivity checks.
+      tags:
+        - always
+
+  tasks:
+    - name: Retrieve Application Gateway configuration to confirm Azure reachability
+      azure.azcollection.azure_rm_appgateway_info:
+        resource_group: "{{ azure_resource_group }}"
+        name: "{{ agw_name }}"
+        # AAP's Azure RM credential injects Service Principal env vars by
+        # default; auth_source: msi switches to Managed Identity instead —
+        # see credentials.yml and docs/setup.md.
+        auth_source: "{{ 'msi' if (azure_auth_mode | default('service_principal') == 'msi') else omit }}"
+      register: agw_connectivity_check
+      tags:
+        - azure
+        - precheck
+
+    - name: Assert the Application Gateway was found
+      ansible.builtin.assert:
+        that:
+          - agw_connectivity_check.applicationgateways | length == 1
+        fail_msg: >-
+          Application Gateway {{ agw_name }} not found in resource group
+          {{ azure_resource_group }}. Check azure_resource_group/agw_name and
+          the configured credentials (or the Managed Identity RBAC assignment
+          when azure_auth_mode: msi).
+      tags:
+        - azure
+        - precheck
+
+    # A lightweight GET on the pool object itself proves both the F5 API is
+    # reachable and the configured pool exists, without touching any member.
+    - name: Query F5 BIG-IP pool object to confirm API reachability
+      ansible.builtin.uri:
+        url: "https://{{ f5_server }}/mgmt/tm/ltm/pool/~{{ f5_partition }}~{{ f5_pool_name }}"
+        method: GET
+        user: "{{ f5_username }}"
+        password: "{{ f5_password }}"
+        force_basic_auth: true
+        validate_certs: false
+        status_code: 200
+      register: f5_connectivity_check
+      tags:
+        - f5
+        - precheck
+
+    - name: Report connectivity check results
+      ansible.builtin.debug:
+        msg:
+          - >-
+            Azure: reached Application Gateway {{ agw_name }} in
+            {{ azure_resource_group }} (SKU
+            {{ agw_connectivity_check.applicationgateways[0].sku.name | default('unknown') }}).
+          - "F5: reached pool {{ f5_pool_name }} (partition {{ f5_partition }}) on {{ f5_server }}."
+      tags:
+        - precheck

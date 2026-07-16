@@ -1,0 +1,16 @@
+---
+# UC4: shared multicloud inventory naming across PoC artifacts.
+controller_inventories:
+  - name: "{{ demo_inventory_name }}"
+    organization: "{{ demo_organization_name }}"
+    description: Parent inventory for multicloud load balancer operations
+
+  - name: Azure-Resources
+    organization: "{{ demo_organization_name }}"
+    description: Azure VMs and Application Gateway metadata
+    inventory: "{{ demo_inventory_name }}"
+
+  - name: AWS-Resources
+    organization: "{{ demo_organization_name }}"
+    description: Reserved for multicloud PoC consistency (unused in UC1)
+    inventory: "{{ demo_inventory_name }}"

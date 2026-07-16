@@ -1,0 +1,58 @@
+# Description: Remove the demo VM from the F5 BIG-IP LTM pool.
+# Requires explicit confirmation via -e demo_teardown_confirm=true.
+#
+# F5 BIG-IP is bring-your-own: this playbook only removes the pool member entry.
+# It does not modify or delete the pool itself.
+#
+# Run command:
+#   ansible-playbook playbooks/setup/02_f5_teardown.yml \
+#     -e demo_teardown_confirm=true --vault-id @prompt
+---
+- name: Remove demo VM from F5 BIG-IP LTM pool
+  hosts: localhost
+  gather_facts: false
+  collections:
+    - f5networks.f5_modules
+    - ansible.builtin
+
+  vars_files:
+    - ../../vault.yml
+    - ../../group_vars/all/demo_variables.yml
+
+  pre_tasks:
+    - name: Require demo_teardown_confirm=true before removing pool member
+      ansible.builtin.assert:
+        that:
+          - demo_teardown_confirm | default(false) | bool
+        fail_msg: >-
+          Refusing to run teardown. Pass -e demo_teardown_confirm=true to
+          remove the VM from the F5 pool.
+      tags:
+        - always
+
+  tasks:
+    - name: Remove VM from F5 LTM pool
+      f5networks.f5_modules.bigip_pool_member:
+        pool: "{{ f5_pool_name }}"
+        partition: "{{ f5_partition }}"
+        address: "{{ f5_vm_private_ip }}"
+        port: "{{ f5_pool_member_port }}"
+        state: absent
+        provider:
+          server: "{{ f5_server }}"
+          user: "{{ f5_username }}"
+          password: "{{ f5_password }}"
+          validate_certs: false
+      ignore_errors: true
+      tags:
+        - f5
+
+  post_tasks:
+    - name: F5 pool member teardown summary
+      ansible.builtin.debug:
+        msg: >-
+          F5 pool member removed.
+          Pool: {{ f5_pool_name }} / {{ f5_partition }}
+          Member removed: {{ f5_vm_private_ip }}:{{ f5_pool_member_port }}
+      tags:
+        - always

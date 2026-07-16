@@ -1,0 +1,180 @@
+# Description: Remove AAP objects created by the AGW/F5 load balancer demo (destructive).
+# Requires explicit confirmation via -e demo_cleanup_confirm=true.
+#
+# Objects are removed in reverse dependency order so that parent references
+# (organization, inventory) still resolve during deletion.  Labels are
+# skipped because the Controller API does not support state: absent for labels;
+# they are removed automatically when the organization is deleted.
+# The custom credential type F5 BIG-IP API must be deleted after the credential
+# that references it.
+#
+# Each task uses ignore_errors so the playbook completes even if an object
+# was already removed or was never created.
+#
+# Run command:
+#   ansible-playbook playbooks/aap_cleanup.yml -e demo_cleanup_confirm=true --vault-id @prompt
+---
+- name: Remove AGW F5 load balancing demo configuration from AAP
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  collections:
+    - ansible.controller
+    - ansible.builtin
+
+  vars_files:
+    - ../vault.yml
+    - ../group_vars/all/demo_variables.yml
+
+  vars:
+    controller_auth: &controller_auth
+      controller_host: "https://{{ aap_hostname }}"
+      controller_username: "{{ aap_username }}"
+      controller_password: "{{ aap_password }}"
+      validate_certs: "{{ aap_validate_certs }}"
+
+  pre_tasks:
+    - name: Require demo_cleanup_confirm=true before removing AAP objects
+      ansible.builtin.assert:
+        that:
+          - demo_cleanup_confirm | default(false) | bool
+        fail_msg: >-
+          Refusing to run cleanup. Pass -e demo_cleanup_confirm=true to
+          remove demo organizations, projects, templates, and inventories.
+      tags:
+        - always
+
+  tasks:
+    # --- 1. Workflow job templates (depend on job templates) ---
+    - name: Remove workflow job templates
+      ansible.controller.workflow_job_template:
+        name: "{{ item }}"
+        organization: "{{ demo_organization_name }}"
+        state: absent
+        <<: *controller_auth
+      loop:
+        - "WF - Disconnect VM from load balancer"
+        - "WF - Reconnect VM to load balancer"
+        - "WF - Demo setup"
+        - "WF - Demo teardown"
+      ignore_errors: true
+      tags:
+        - workflows
+
+    # --- 2. Job templates (depend on project, inventory, credentials) ---
+    - name: Remove job templates
+      ansible.controller.job_template:
+        name: "{{ item }}"
+        organization: "{{ demo_organization_name }}"
+        state: absent
+        <<: *controller_auth
+      loop:
+        - "LB - Connectivity check (dry run)"
+        - "LB - Pool status preview (dry run)"
+        - "LB - Verify VM in pool"
+        - "LB - Verify connection status"
+        - "LB - Drain and disconnect VM"
+        - "LB - Reconnect VM to pool"
+        - "LB - Collect results"
+        - "Setup - Azure infrastructure"
+        - "Setup - F5 pool member"
+        - "Teardown - Azure infrastructure"
+        - "Teardown - F5 pool member"
+      ignore_errors: true
+      tags:
+        - templates
+
+    # --- 3. Inventories (child inventories before constructed parent) ---
+    - name: Remove inventories
+      ansible.controller.inventory:
+        name: "{{ item }}"
+        organization: "{{ demo_organization_name }}"
+        state: absent
+        <<: *controller_auth
+      loop:
+        - Azure-Resources
+        - AWS-Resources
+        - "{{ demo_inventory_name }}"
+      ignore_errors: true
+      tags:
+        - inventories
+
+    # --- 4. Project ---
+    - name: Remove project
+      ansible.controller.project:
+        name: "{{ demo_project_name }}"
+        organization: "{{ demo_organization_name }}"
+        state: absent
+        <<: *controller_auth
+      ignore_errors: true
+      tags:
+        - projects
+
+    # --- 5. Credentials (before custom credential type that defines them) ---
+    - name: Remove credentials
+      ansible.controller.credential:
+        name: "{{ item.name }}"
+        organization: "{{ demo_organization_name }}"
+        credential_type: "{{ item.type }}"
+        state: absent
+        <<: *controller_auth
+      loop:
+        - name: "{{ azure_credential_name }}"
+          type: Microsoft Azure Resource Manager
+        - name: "{{ f5_credential_name }}"
+          type: F5 BIG-IP API
+        - name: "{{ hub_registry_credential_name }}"
+          type: Container Registry
+      ignore_errors: true
+      tags:
+        - credentials
+
+    # --- 6. Custom credential type (after credentials that reference it) ---
+    - name: Remove custom credential type F5 BIG-IP API
+      ansible.controller.credential_type:
+        name: F5 BIG-IP API
+        kind: cloud
+        state: absent
+        <<: *controller_auth
+      ignore_errors: true
+      tags:
+        - credential_types
+
+    # --- 7. Execution environment ---
+    - name: Remove execution environment
+      ansible.controller.execution_environment:
+        name: "{{ demo_execution_environment_name }}"
+        organization: "{{ demo_organization_name }}"
+        state: absent
+        <<: *controller_auth
+      ignore_errors: true
+      tags:
+        - execution_environments
+
+    # --- 8. Labels ---
+    # The Controller API does not support deleting labels directly.
+    # They are removed when the parent organization is deleted below.
+    - name: Labels will be removed with the organization
+      ansible.builtin.debug:
+        msg: "Skipping labels — no direct delete API; removed with organization."
+      tags:
+        - labels
+
+    # --- 9. Organization (last — parent of all objects above) ---
+    - name: Remove organization
+      ansible.controller.organization:
+        name: "{{ demo_organization_name }}"
+        state: absent
+        <<: *controller_auth
+      ignore_errors: true
+      tags:
+        - organization
+
+  post_tasks:
+    - name: Cleanup summary
+      ansible.builtin.debug:
+        msg: >-
+          Cleanup complete. All demo objects have been removed from AAP.
+          To re-deploy, run: ansible-playbook playbooks/aap_config.yml --vault-id @prompt
+      tags:
+        - always

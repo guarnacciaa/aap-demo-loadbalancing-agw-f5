@@ -1,0 +1,72 @@
+# Description: Verify connection/member status for AGW backend or F5 pool member.
+---
+- name: Verify load balancer connection status for target VM
+  hosts: localhost
+  gather_facts: false
+  collections:
+    - azure.azcollection
+    - f5networks.f5_modules
+    - ansible.builtin
+
+  vars:
+    lb_backend_type: "{{ lb_backend_type | mandatory }}"
+    target_vm_ip: "{{ target_vm_ip | mandatory }}"
+
+  tasks:
+    - name: Check AGW backend health via gateway facts
+      when: lb_backend_type == 'agw'
+      block:
+        - name: Retrieve Application Gateway health probe data
+          azure.azcollection.azure_rm_appgateway_info:
+            resource_group: "{{ azure_resource_group }}"
+            name: "{{ agw_name }}"
+            # See lb_verify_presence.yml: auth_source switches to Managed
+            # Identity when azure_auth_mode: msi.
+            auth_source: "{{ 'msi' if (azure_auth_mode | default('service_principal') == 'msi') else omit }}"
+          register: agw_info
+          tags:
+            - agw
+            - verify
+
+        - name: Display AGW backend pool member addresses for operator review
+          ansible.builtin.debug:
+            msg: >-
+              AGW pool {{ agw_backend_pool_name }} backends:
+              {{
+                (
+                  agw_info.applicationgateways[0].backend_address_pools
+                  | selectattr('name', 'equalto', agw_backend_pool_name)
+                  | list | first
+                ).backend_addresses | default([])
+              }}
+          tags:
+            - agw
+            - verify
+
+    - name: Check F5 pool member enabled state
+      when: lb_backend_type == 'f5'
+      f5networks.f5_modules.bigip_pool_member:
+        pool: "{{ f5_pool_name }}"
+        partition: "{{ f5_partition }}"
+        address: "{{ target_vm_ip }}"
+        port: "{{ f5_pool_member_port }}"
+        state: enabled
+        provider:
+          server: "{{ f5_server }}"
+          user: "{{ f5_username }}"
+          password: "{{ f5_password }}"
+          validate_certs: false
+      check_mode: true
+      register: f5_enabled_check
+      tags:
+        - f5
+        - verify
+
+    - name: Record connection status verification
+      ansible.builtin.set_stats:
+        data:
+          lb_verify_status: completed
+          lb_backend_type: "{{ lb_backend_type }}"
+          target_vm_ip: "{{ target_vm_ip }}"
+      tags:
+        - verify

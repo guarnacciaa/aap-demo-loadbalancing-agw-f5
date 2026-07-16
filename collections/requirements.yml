@@ -1,0 +1,11 @@
+---
+collections:
+  - name: infra.aap_configuration
+  - name: azure.azcollection
+  - name: f5networks.f5_modules
+  - name: ansible.netcommon
+  # Used by playbooks/aap_config.yml post_tasks (EE/inventory wiring) and
+  # playbooks/aap_cleanup.yml for explicit Controller object deletion.
+  - name: ansible.controller
+
+roles: []
