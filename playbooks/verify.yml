@@ -20,20 +20,21 @@
         - verify
 
     # Required in every deployment mode: the always-deployed LB - * scenario
-    # templates and both dry-run templates look up the target VM/AGW/F5 pool
-    # by these values (see the [ALWAYS REQUIRED] sections in
-    # demo_variables.yml.example). Only validated inside 01_azure_setup.yml's
-    # own bring-your-own check until now — which never runs at all in
-    # customer/PoC mode.
+    # templates and both dry-run templates look up the target VM/F5 pool by
+    # these values (see the [ALWAYS REQUIRED] sections in
+    # demo_variables.yml.example). agw_name/agw_backend_pool_name are
+    # deliberately NOT checked here: the Application Gateway is discovered
+    # dynamically from agw_vm_hostname's NIC at runtime (see
+    # playbooks/demo/tasks/agw_discover_from_nic.yml), they are only
+    # consumed by Setup - Azure infrastructure (checked further below,
+    # lab/dev only).
     - name: Confirm core load balancer identity variables (required in every mode)
       ansible.builtin.assert:
         that:
           - azure_resource_group is defined
           - azure_resource_group != "CHANGE_ME"
-          - agw_name is defined
-          - agw_name != "CHANGE_ME"
-          - agw_backend_pool_name is defined
-          - agw_backend_pool_name != "CHANGE_ME"
+          - agw_vm_hostname is defined
+          - agw_vm_hostname != "CHANGE_ME"
           - agw_vm_private_ip is defined
           - agw_vm_private_ip != "CHANGE_ME"
           - f5_server is defined
@@ -44,9 +45,8 @@
           - f5_vm_private_ip != "CHANGE_ME"
         fail_msg: >-
           Core load balancer identity variables are incomplete. Check
-          demo_variables.yml (azure_resource_group, agw_name,
-          agw_backend_pool_name, agw_vm_private_ip, f5_server, f5_pool_name,
-          f5_vm_private_ip).
+          demo_variables.yml (azure_resource_group, agw_vm_hostname,
+          agw_vm_private_ip, f5_server, f5_pool_name, f5_vm_private_ip).
       tags:
         - verify
 
@@ -92,6 +92,27 @@
           or set azure_auth_mode: msi in demo_variables.yml if AAP's execution
           nodes run on Azure with a Managed Identity attached.
       when: azure_auth_mode | default('service_principal') == 'service_principal'
+      tags:
+        - verify
+
+    # Only required in lab/dev mode: Setup - Azure infrastructure is the only
+    # consumer of agw_name/agw_backend_pool_name (it attaches
+    # agw_vm_hostname's NIC to this pool on first run), and that job
+    # template is never even deployed when demo_manage_infrastructure is
+    # false — see the [LAB/DEV ONLY] section in demo_variables.yml.example.
+    - name: Confirm Application Gateway identity variables (lab/dev only)
+      ansible.builtin.assert:
+        that:
+          - agw_name is defined
+          - agw_name != "CHANGE_ME"
+          - agw_backend_pool_name is defined
+          - agw_backend_pool_name != "CHANGE_ME"
+        fail_msg: >-
+          demo_manage_infrastructure is true: set agw_name and
+          agw_backend_pool_name in demo_variables.yml so
+          Setup - Azure infrastructure can attach agw_vm_hostname's NIC to
+          the Application Gateway backend pool.
+      when: demo_manage_infrastructure | default(true) | bool
       tags:
         - verify
 

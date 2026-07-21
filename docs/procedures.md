@@ -26,26 +26,39 @@ connectivity check and pool preview nodes that already run automatically as the
 first two nodes of both workflows.
 
 ```bash
-# Confirm Azure AGW and F5 BIG-IP API connectivity
-ansible-playbook playbooks/demo/lb_precheck_connectivity.yml --vault-id @prompt
+# Confirm Azure (via the target VM/NIC) and F5 BIG-IP API connectivity
+ansible-playbook playbooks/demo/lb_precheck_connectivity.yml \
+  -e target_vm_hostname=azure-vm-agw01 \
+  -e azure_resource_group=my-rg \
+  --vault-id @prompt
 
 # Preview current AGW/F5 pool membership for a target VM
 ansible-playbook playbooks/demo/lb_pool_preview.yml \
   -e lb_backend_type=agw \
+  -e target_vm_hostname=azure-vm-agw01 \
   -e target_vm_ip=10.0.1.10 \
+  -e azure_resource_group=my-rg \
   --vault-id @prompt
 ```
 
 ## Ad hoc examples
 
 ```bash
-# AGW disconnect
+# AGW disconnect — the Application Gateway/backend pool are discovered from
+# the target VM's NIC (see docs/setup.md#application-gateway-backend-discovery);
+# no agw_name/agw_backend_pool_name to pass here.
 ansible-playbook playbooks/demo/lb_drain_disconnect.yml \
   -e lb_backend_type=agw \
+  -e target_vm_hostname=azure-vm-agw01 \
   -e target_vm_ip=10.0.1.10 \
-  -e azure_resource_group=my-rg \
-  -e agw_name=my-agw \
-  -e agw_backend_pool_name=my-pool
+  -e azure_resource_group=my-rg
+
+# AGW reconnect — restores the association saved by the disconnect run above
+ansible-playbook playbooks/demo/lb_reconnect.yml \
+  -e lb_backend_type=agw \
+  -e target_vm_hostname=azure-vm-agw01 \
+  -e target_vm_ip=10.0.1.10 \
+  -e azure_resource_group=my-rg
 
 # F5 reconnect
 ansible-playbook playbooks/demo/lb_reconnect.yml \

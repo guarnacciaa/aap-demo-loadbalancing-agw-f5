@@ -1,0 +1,124 @@
+# Description: Discover the Application Gateway backend pool that the
+# target VM's primary network interface is currently attached to, plus (if
+# a live association was previously removed by lb_drain_disconnect.yml) the
+# pool it was last detached from.
+#
+# Decision: this environment associates AGW backend pool membership with the
+# VM's NIC ipConfiguration ("backendIPConfigurations" in the Azure REST
+# model), not with a static backend IP address. When that model is used, the
+# NIC itself carries a reference back to the backend pool resource ID, so
+# the Application Gateway's name, resource group, and pool name can be
+# derived from the target VM's own network information at runtime instead
+# of requiring agw_name/agw_backend_pool_name to be pre-configured as fixed
+# variables (those two variables now only matter to
+# playbooks/setup/01_azure_setup.yml, which bootstraps the initial
+# association in lab/dev mode — see demo_variables.yml.example).
+#
+# This is an include_tasks file, not a role: playbooks/demo/*.yml run from
+# AAP against a project checkout that never ships a committed ansible.cfg
+# (roles_path is local-only config, gitignored per artifact--layout.mdc), so
+# a role placed under the artifact-root roles/ directory is not reliably on
+# the role search path when AAP invokes playbooks/demo/*.yml directly.
+# include_tasks paths are resolved relative to the including playbook's own
+# directory regardless of execution context, which is why this file lives
+# alongside the lb_*.yml playbooks that include it.
+#
+# Limitation: only the VM's FIRST network interface and its PRIMARY IP
+# configuration are inspected. Multi-NIC VMs, or VMs where the AGW pool is
+# attached to a secondary NIC or a non-primary IP configuration, are out of
+# scope for this demo.
+#
+# Requires (already mandatory in every including playbook): azure_resource_group
+# (the target VM's resource group), target_vm_hostname, azure_auth_mode.
+# Sets: agw_state_tag_key, agw_discovered_vm_info, agw_discovered_nic_info,
+# agw_discovered_nic_name, agw_discovered_pool_ids_live,
+# agw_discovered_resource_group, agw_discovered_name, agw_discovered_pool_name,
+# agw_discovered_pool_id_saved, agw_discovered_saved_resource_group,
+# agw_discovered_saved_name, agw_discovered_saved_pool_name.
+---
+- name: Define the VM tag key used to persist AGW backend pool state across separate runs
+  ansible.builtin.set_fact:
+    agw_state_tag_key: lb_agw_backend_pool_id
+    agw_pool_id_regex: '/resourceGroups/([^/]+)/providers/Microsoft\.Network/applicationGateways/([^/]+)/backendAddressPools/([^/]+)'
+  tags:
+    - agw
+    - discover
+
+- name: Look up the target VM to resolve its network interface and resource group
+  azure.azcollection.azure_rm_virtualmachine_info:
+    resource_group: "{{ azure_resource_group }}"
+    name: "{{ target_vm_hostname }}"
+    auth_source: "{{ 'msi' if (azure_auth_mode | default('service_principal') == 'msi') else omit }}"
+  register: agw_discovered_vm_info
+  tags:
+    - agw
+    - discover
+
+- name: Fail fast when the target VM cannot be found or has no network interface
+  ansible.builtin.assert:
+    that:
+      - agw_discovered_vm_info.vms | length == 1
+      - agw_discovered_vm_info.vms[0].network_interface_names | length > 0
+    fail_msg: >-
+      VM {{ target_vm_hostname }} not found in resource group
+      {{ azure_resource_group }}, or it has no network interfaces attached.
+      Check target_vm_hostname/azure_resource_group and the configured
+      credentials (or the Managed Identity RBAC assignment when
+      azure_auth_mode: msi).
+  tags:
+    - agw
+    - discover
+
+- name: Retrieve current configuration of the VM's primary network interface
+  azure.azcollection.azure_rm_networkinterface_info:
+    resource_group: "{{ agw_discovered_vm_info.vms[0].resource_group }}"
+    name: "{{ agw_discovered_vm_info.vms[0].network_interface_names[0] }}"
+    auth_source: "{{ 'msi' if (azure_auth_mode | default('service_principal') == 'msi') else omit }}"
+  register: agw_discovered_nic_info
+  tags:
+    - agw
+    - discover
+
+- name: Resolve the live Application Gateway backend pool association from the NIC
+  ansible.builtin.set_fact:
+    agw_discovered_nic_name: "{{ agw_discovered_nic_info.networkinterfaces[0].name }}"
+    agw_discovered_pool_ids_live: >-
+      {{
+        agw_discovered_nic_info.networkinterfaces[0].ip_configurations[0].application_gateway_backend_address_pools
+        | default([])
+      }}
+  tags:
+    - agw
+    - discover
+
+- name: Parse Application Gateway resource group, name, and pool name from the live association
+  ansible.builtin.set_fact:
+    agw_discovered_resource_group: "{{ (agw_discovered_pool_ids_live[0] | regex_search(agw_pool_id_regex, '\\1', '\\2', '\\3'))[0] }}"
+    agw_discovered_name: "{{ (agw_discovered_pool_ids_live[0] | regex_search(agw_pool_id_regex, '\\1', '\\2', '\\3'))[1] }}"
+    agw_discovered_pool_name: "{{ (agw_discovered_pool_ids_live[0] | regex_search(agw_pool_id_regex, '\\1', '\\2', '\\3'))[2] }}"
+  when: agw_discovered_pool_ids_live | length > 0
+  tags:
+    - agw
+    - discover
+
+- name: Resolve any previously saved Application Gateway backend pool association from VM tags
+  # Mirrors the reference implementation's saved_state pattern: when
+  # lb_drain_disconnect.yml removes a live NIC association, it records the
+  # exact backend pool resource ID in this tag so a later (and potentially
+  # separate) lb_reconnect.yml run can restore precisely the same
+  # association without it being passed in again.
+  ansible.builtin.set_fact:
+    agw_discovered_pool_id_saved: "{{ agw_discovered_vm_info.vms[0].tags.get(agw_state_tag_key, '') }}"
+  tags:
+    - agw
+    - discover
+
+- name: Parse Application Gateway resource group, name, and pool name from the saved association
+  ansible.builtin.set_fact:
+    agw_discovered_saved_resource_group: "{{ (agw_discovered_pool_id_saved | regex_search(agw_pool_id_regex, '\\1', '\\2', '\\3'))[0] }}"
+    agw_discovered_saved_name: "{{ (agw_discovered_pool_id_saved | regex_search(agw_pool_id_regex, '\\1', '\\2', '\\3'))[1] }}"
+    agw_discovered_saved_pool_name: "{{ (agw_discovered_pool_id_saved | regex_search(agw_pool_id_regex, '\\1', '\\2', '\\3'))[2] }}"
+  when: agw_discovered_pool_id_saved | length > 0
+  tags:
+    - agw
+    - discover

@@ -15,7 +15,10 @@ controller_templates:
     ask_variables_on_launch: true
     extra_vars:
       azure_resource_group: "{{ azure_resource_group }}"
-      agw_name: "{{ agw_name }}"
+      # The Application Gateway is discovered from this VM's NIC (see
+      # playbooks/demo/tasks/agw_discover_from_nic.yml) — there is no fixed
+      # agw_name to pass here.
+      target_vm_hostname: "{{ agw_vm_hostname }}"
       # Without this, the azure_rm_appgateway_info task's auth_source Jinja
       # always resolves to the service_principal branch (silently ignoring a
       # real azure_auth_mode: msi), because group_vars/all/ is not reliably
@@ -39,10 +42,9 @@ controller_templates:
     ask_variables_on_launch: true
     extra_vars:
       lb_backend_type: agw
+      target_vm_hostname: "{{ agw_vm_hostname }}"
       target_vm_ip: "{{ agw_vm_private_ip }}"
       azure_resource_group: "{{ azure_resource_group }}"
-      agw_name: "{{ agw_name }}"
-      agw_backend_pool_name: "{{ agw_backend_pool_name }}"
       # See the comment on LB - Connectivity check above: this playbook also
       # branches on azure_auth_mode and must receive it via extra_vars.
       azure_auth_mode: "{{ azure_auth_mode }}"
@@ -66,6 +68,7 @@ controller_templates:
       lb_backend_type: agw
       target_vm_hostname: "{{ agw_vm_hostname }}"
       target_vm_ip: "{{ agw_vm_private_ip }}"
+      azure_resource_group: "{{ azure_resource_group }}"
       # See the comment on LB - Connectivity check above: this playbook also
       # branches on azure_auth_mode and must receive it via extra_vars.
       azure_auth_mode: "{{ azure_auth_mode }}"
@@ -86,6 +89,7 @@ controller_templates:
       lb_backend_type: agw
       target_vm_hostname: "{{ agw_vm_hostname }}"
       target_vm_ip: "{{ agw_vm_private_ip }}"
+      azure_resource_group: "{{ azure_resource_group }}"
       azure_auth_mode: "{{ azure_auth_mode }}"
     credentials:
       - "{{ azure_credential_name }}"
@@ -104,6 +108,7 @@ controller_templates:
       lb_backend_type: agw
       target_vm_hostname: "{{ agw_vm_hostname }}"
       target_vm_ip: "{{ agw_vm_private_ip }}"
+      azure_resource_group: "{{ azure_resource_group }}"
       drain_wait_timeout: "{{ drain_wait_timeout }}"
       azure_auth_mode: "{{ azure_auth_mode }}"
     credentials:
@@ -123,6 +128,7 @@ controller_templates:
       lb_backend_type: agw
       target_vm_hostname: "{{ agw_vm_hostname }}"
       target_vm_ip: "{{ agw_vm_private_ip }}"
+      azure_resource_group: "{{ azure_resource_group }}"
       azure_auth_mode: "{{ azure_auth_mode }}"
     credentials:
       - "{{ azure_credential_name }}"

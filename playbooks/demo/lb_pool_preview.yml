@@ -1,16 +1,22 @@
 # Description: Read-only preview of the AGW backend pool or F5 pool member
 # state for the target VM selected in the workflow survey (lb_backend_type,
-# target_vm_ip — same variables LB - Verify/Drain/Reconnect consume). Reports
-# whether the target is currently present (relevant before drain/disconnect)
-# or absent (relevant before reconnect), without asserting or making any
-# change. Never creates, modifies, or deletes any Azure or F5 object — safe
-# to run repeatedly, including against a customer's pre-existing load
-# balancer configuration. Run this (or launch
+# target_vm_hostname, target_vm_ip — same variables LB - Verify/Drain/Reconnect
+# consume). Reports whether the target is currently present (relevant before
+# drain/disconnect) or absent (relevant before reconnect), without asserting
+# or making any change. Never creates, modifies, or deletes any Azure or F5
+# object — safe to run repeatedly, including against a customer's
+# pre-existing load balancer configuration. Run this (or launch
 # LB - Pool status preview (dry run) in AAP) before either demo workflow to
 # confirm what it will actually do. It also runs automatically as the second
 # node of both workflows (after LB - Connectivity check), so a wrong
 # hostname/IP fails fast — as an informational report, not a hard error —
 # before any drain/disconnect/reconnect task runs.
+#
+# AGW: membership is NIC-based in this environment (see
+# tasks/agw_discover_from_nic.yml), so "present" is resolved from the target
+# VM's own NIC, not from a fixed agw_name/agw_backend_pool_name. When absent,
+# this also reports whether a previously saved association exists (i.e.
+# what LB - Reconnect VM to pool would restore).
 ---
 - name: Preview load balancer pool state for the target VM
   hosts: localhost
@@ -22,46 +28,38 @@
 
   vars:
     lb_backend_type: "{{ lb_backend_type | mandatory }}"
+    target_vm_hostname: "{{ target_vm_hostname | mandatory }}"
     target_vm_ip: "{{ target_vm_ip | mandatory }}"
 
   tasks:
     - name: Preview Application Gateway backend pool membership
       when: lb_backend_type == 'agw'
       block:
-        - name: Retrieve Application Gateway configuration
-          azure.azcollection.azure_rm_appgateway_info:
-            resource_group: "{{ azure_resource_group }}"
-            name: "{{ agw_name }}"
-            auth_source: "{{ 'msi' if (azure_auth_mode | default('service_principal') == 'msi') else omit }}"
-          register: agw_info
-          tags:
-            - agw
-            - preview
-
-        - name: Resolve current backend pool addresses for the configured pool
-          ansible.builtin.set_fact:
-            agw_pool_addresses: >-
-              {{
-                (
-                  agw_info.applicationgateways[0].backend_address_pools
-                  | selectattr('name', 'equalto', agw_backend_pool_name)
-                  | list | first
-                ).backend_addresses | default([])
-              }}
+        - name: Resolve the target VM's NIC and any live or saved Application Gateway backend pool association
+          ansible.builtin.include_tasks: tasks/agw_discover_from_nic.yml
           tags:
             - agw
             - preview
 
         - name: Report AGW pool preview
           ansible.builtin.debug:
-            msg:
-              - >-
-                AGW pool {{ agw_backend_pool_name }} currently has
-                {{ agw_pool_addresses | length }} backend address(es):
-                {{ agw_pool_addresses | map(attribute='ip_address') | list | join(', ') }}
-              - >-
-                Target VM IP {{ target_vm_ip }} is currently
-                {{ 'PRESENT — drain/disconnect will remove it' if (agw_pool_addresses | selectattr('ip_address', 'equalto', target_vm_ip) | list | length > 0) else 'ABSENT — reconnect will add it' }}.
+            msg: >-
+              {{
+                'VM ' + target_vm_hostname + ' is currently PRESENT — its NIC is attached to Application Gateway '
+                + agw_discovered_name + ' / pool ' + agw_discovered_pool_name + '. Drain/disconnect will remove it.'
+                if (agw_discovered_pool_ids_live | length > 0)
+                else (
+                  'VM ' + target_vm_hostname + ' is currently ABSENT from any Application Gateway backend pool. '
+                  + 'Reconnect will restore its NIC to Application Gateway ' + agw_discovered_saved_name
+                  + ' / pool ' + agw_discovered_saved_pool_name + ' (from saved state).'
+                  if (agw_discovered_pool_id_saved | length > 0)
+                  else (
+                    'VM ' + target_vm_hostname + ' is currently ABSENT and no previously saved Application Gateway '
+                    + 'association was found on this VM. Run drain/disconnect first, or attach the NIC to the '
+                    + 'desired backend pool manually before relying on reconnect.'
+                  )
+                )
+              }}
           tags:
             - agw
             - preview
@@ -104,6 +102,7 @@
       ansible.builtin.set_stats:
         data:
           lb_preview_backend_type: "{{ lb_backend_type }}"
+          lb_preview_target_vm_hostname: "{{ target_vm_hostname }}"
           lb_preview_target_vm_ip: "{{ target_vm_ip }}"
       tags:
         - preview

@@ -63,15 +63,18 @@
     # validated inside 01_azure_setup.yml's own bring-your-own check — which
     # never runs at all in customer/PoC mode (demo_manage_infrastructure:
     # false), since Setup - Azure infrastructure is not even deployed then.
+    # agw_name/agw_backend_pool_name are deliberately NOT validated here:
+    # the Application Gateway is discovered dynamically from
+    # agw_vm_hostname's NIC at runtime by every LB - * scenario template
+    # (see playbooks/demo/tasks/agw_discover_from_nic.yml); those two
+    # variables are lab/dev-only and validated further below.
     - name: Validate core load balancer identity variables
       ansible.builtin.assert:
         that:
           - azure_resource_group is defined
           - azure_resource_group != "CHANGE_ME"
-          - agw_name is defined
-          - agw_name != "CHANGE_ME"
-          - agw_backend_pool_name is defined
-          - agw_backend_pool_name != "CHANGE_ME"
+          - agw_vm_hostname is defined
+          - agw_vm_hostname != "CHANGE_ME"
           - agw_vm_private_ip is defined
           - agw_vm_private_ip != "CHANGE_ME"
           - f5_server is defined
@@ -81,13 +84,34 @@
           - f5_vm_private_ip is defined
           - f5_vm_private_ip != "CHANGE_ME"
         fail_msg: >-
-          Set azure_resource_group, agw_name, agw_backend_pool_name,
-          agw_vm_private_ip, f5_server, f5_pool_name, and f5_vm_private_ip in
+          Set azure_resource_group, agw_vm_hostname, agw_vm_private_ip,
+          f5_server, f5_pool_name, and f5_vm_private_ip in
           demo_variables.yml — every LB - * scenario template requires them
           regardless of demo_manage_infrastructure. If
           demo_manage_infrastructure: true and azure_create_network_resources:
           true, run Setup - Azure infrastructure first and copy the values it
           publishes via set_stats into demo_variables.yml.
+      tags:
+        - always
+
+    # Only enforced in lab/dev mode: Setup - Azure infrastructure is the
+    # only consumer of agw_name/agw_backend_pool_name (it attaches
+    # agw_vm_hostname's NIC to this pool on first run), and that job
+    # template is never even deployed when demo_manage_infrastructure is
+    # false.
+    - name: Validate Application Gateway identity variables (lab/dev only)
+      ansible.builtin.assert:
+        that:
+          - agw_name is defined
+          - agw_name != "CHANGE_ME"
+          - agw_backend_pool_name is defined
+          - agw_backend_pool_name != "CHANGE_ME"
+        fail_msg: >-
+          demo_manage_infrastructure is true: set agw_name and
+          agw_backend_pool_name in demo_variables.yml so
+          Setup - Azure infrastructure can attach agw_vm_hostname's NIC to
+          the Application Gateway backend pool.
+      when: demo_manage_infrastructure | default(true) | bool
       tags:
         - always
 

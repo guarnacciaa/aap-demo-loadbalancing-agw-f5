@@ -124,20 +124,30 @@ azure_auth_mode: service_principal
 
 azure_subscription_id: CHANGE_ME
 azure_tenant_id: CHANGE_ME
+# Resource group containing the target VMs below — used both by
+# Setup - Azure infrastructure (create-from-scratch mode) and by every
+# LB - * scenario template to look up agw_vm_hostname and resolve its
+# Application Gateway backend pool association (see the note below).
 azure_resource_group: CHANGE_ME
 
 # --- Azure — AGW/VM target identity --- [ALWAYS REQUIRED]
 # Consumed by LB - Verify/Drain/Reconnect/Collect and the dry-run templates in
 # every deployment mode. In customer/PoC mode these must name the customer's
-# EXISTING VMs, Application Gateway, and backend pool exactly.
+# EXISTING VMs exactly.
+#
+# The Application Gateway itself (name, resource group, backend pool) is
+# NOT configured here: this environment associates AGW backend pool
+# membership with the VM's NIC ipConfiguration, not with a static backend IP
+# address, so every LB - * scenario template discovers the Application
+# Gateway dynamically at runtime from agw_vm_hostname's primary NIC — see
+# playbooks/demo/tasks/agw_discover_from_nic.yml and
+# docs/setup.md#application-gateway-backend-discovery. agw_name and
+# agw_backend_pool_name below are only needed for the initial NIC
+# attachment performed by Setup - Azure infrastructure (lab/dev only).
 
 # VM connected to AGW
 agw_vm_hostname: azure-vm-agw01
 agw_vm_private_ip: CHANGE_ME
-
-# Application Gateway
-agw_name: CHANGE_ME
-agw_backend_pool_name: CHANGE_ME
 
 # VM connected to F5
 f5_vm_hostname: azure-vm-f501
@@ -155,6 +165,19 @@ f5_vm_private_ip: CHANGE_ME
 # VNet, subnet, NSG, VMs, and AGW from scratch using the variables below.
 
 azure_create_network_resources: false
+
+# --- Application Gateway identity (LAB/DEV ONLY) ---
+# Consumed exclusively by Setup - Azure infrastructure to attach
+# agw_vm_hostname's NIC to this Application Gateway and backend pool when
+# the demo bootstraps its own environment (runs in both the bring-your-own
+# and create-from-scratch sub-modes above). The Application Gateway
+# resource itself is always assumed to pre-exist — this demo manages
+# backend pool NIC membership only, never the AGW resource lifecycle (see
+# docs/setup.md). Not read by any LB - * scenario template: those discover
+# the Application Gateway/pool dynamically from the VM's NIC at runtime
+# (see the AGW/VM target identity section above).
+agw_name: CHANGE_ME
+agw_backend_pool_name: CHANGE_ME
 
 # --- Create-from-scratch (azure_create_network_resources: true) ---
 # Required only when azure_create_network_resources is true; otherwise ignored.

@@ -1,0 +1,139 @@
+# Description: Attach or detach the target VM's primary NIC from an
+# Application Gateway backend pool, preserving the NIC's existing primary IP
+# configuration (subnet, private IP, allocation method, primary flag).
+#
+# Must be included AFTER tasks/agw_discover_from_nic.yml earlier in the same
+# play — it consumes the agw_discovered_* facts and agw_state_tag_key set
+# there. Controlled by agw_membership_state, set by the including task:
+#   absent  (lb_drain_disconnect.yml) — detaches whatever backend pool is
+#     currently live on the NIC, if any, first saving its resource ID to the
+#     VM's lb_agw_backend_pool_id tag so a later, separate reconnect run can
+#     restore it without the pool identity being passed in again.
+#   present (lb_reconnect.yml) — re-attaches the backend pool resource ID
+#     previously saved in that tag. Fails clearly if no saved state exists.
+#
+# Decision: azure_rm_networkinterface is a declarative "manage" module — a
+# partial update that omits existing ip_configurations fields can silently
+# drop them (subnet, private IP). Every attach/detach below re-sends the
+# NIC's current primary IP configuration values (already read by the
+# discovery include) alongside only the
+# application_gateway_backend_address_pools change, to avoid that class of bug.
+---
+- name: Report already-disconnected state when no live AGW association exists
+  ansible.builtin.debug:
+    msg: >-
+      VM {{ target_vm_hostname }} NIC {{ agw_discovered_nic_name }} has no
+      live Application Gateway backend pool association. Nothing to disconnect.
+  when:
+    - agw_membership_state == 'absent'
+    - agw_discovered_pool_ids_live | length == 0
+  tags:
+    - agw
+    - membership
+
+- name: Persist the removed Application Gateway backend pool association on the VM tags
+  azure.azcollection.azure_rm_virtualmachine:
+    name: "{{ target_vm_hostname }}"
+    resource_group: "{{ azure_resource_group }}"
+    append_tags: true
+    tags:
+      "{{ agw_state_tag_key }}": "{{ agw_discovered_pool_ids_live[0] }}"
+    auth_source: "{{ 'msi' if (azure_auth_mode | default('service_principal') == 'msi') else omit }}"
+    state: present
+  when:
+    - agw_membership_state == 'absent'
+    - agw_discovered_pool_ids_live | length > 0
+  tags:
+    - agw
+    - membership
+
+- name: Detach the target VM NIC from the Application Gateway backend pool
+  azure.azcollection.azure_rm_networkinterface:
+    name: "{{ agw_discovered_nic_name }}"
+    resource_group: "{{ agw_discovered_vm_info.vms[0].resource_group }}"
+    virtual_network_name: "{{ agw_discovered_nic_info.networkinterfaces[0].virtual_network.name }}"
+    subnet_name: "{{ agw_discovered_nic_info.networkinterfaces[0].subnet }}"
+    ip_configurations:
+      - name: "{{ agw_discovered_nic_info.networkinterfaces[0].ip_configurations[0].name }}"
+        primary: "{{ agw_discovered_nic_info.networkinterfaces[0].ip_configurations[0].primary }}"
+        private_ip_address: "{{ agw_discovered_nic_info.networkinterfaces[0].ip_configurations[0].private_ip_address }}"
+        private_ip_allocation_method: "{{ agw_discovered_nic_info.networkinterfaces[0].ip_configurations[0].private_ip_allocation_method }}"
+        application_gateway_backend_address_pools: []
+    auth_source: "{{ 'msi' if (azure_auth_mode | default('service_principal') == 'msi') else omit }}"
+    state: present
+  when:
+    - agw_membership_state == 'absent'
+    - agw_discovered_pool_ids_live | length > 0
+  tags:
+    - agw
+    - membership
+
+- name: Fail if no saved Application Gateway backend pool association exists to restore
+  ansible.builtin.assert:
+    that:
+      - agw_discovered_pool_id_saved | length > 0
+    fail_msg: >-
+      No saved Application Gateway backend pool association found in the
+      {{ agw_state_tag_key }} tag on VM {{ target_vm_hostname }}. Run
+      LB - Drain and disconnect VM first, or attach the NIC to the desired
+      backend pool manually before reconnecting.
+  when:
+    - agw_membership_state == 'present'
+    - agw_discovered_pool_ids_live | length == 0
+  tags:
+    - agw
+    - membership
+
+- name: Report already-connected state when the NIC already has an AGW association
+  ansible.builtin.debug:
+    msg: >-
+      VM {{ target_vm_hostname }} NIC {{ agw_discovered_nic_name }} is
+      already attached to {{ agw_discovered_pool_ids_live[0] | default('an Application Gateway backend pool') }}. Nothing to do.
+  when:
+    - agw_membership_state == 'present'
+    - agw_discovered_pool_ids_live | length > 0
+  tags:
+    - agw
+    - membership
+
+- name: Re-attach the target VM NIC to the saved Application Gateway backend pool
+  azure.azcollection.azure_rm_networkinterface:
+    name: "{{ agw_discovered_nic_name }}"
+    resource_group: "{{ agw_discovered_vm_info.vms[0].resource_group }}"
+    virtual_network_name: "{{ agw_discovered_nic_info.networkinterfaces[0].virtual_network.name }}"
+    subnet_name: "{{ agw_discovered_nic_info.networkinterfaces[0].subnet }}"
+    ip_configurations:
+      - name: "{{ agw_discovered_nic_info.networkinterfaces[0].ip_configurations[0].name }}"
+        primary: "{{ agw_discovered_nic_info.networkinterfaces[0].ip_configurations[0].primary }}"
+        private_ip_address: "{{ agw_discovered_nic_info.networkinterfaces[0].ip_configurations[0].private_ip_address }}"
+        private_ip_allocation_method: "{{ agw_discovered_nic_info.networkinterfaces[0].ip_configurations[0].private_ip_allocation_method }}"
+        application_gateway_backend_address_pools:
+          - "{{ agw_discovered_pool_id_saved }}"
+    auth_source: "{{ 'msi' if (azure_auth_mode | default('service_principal') == 'msi') else omit }}"
+    state: present
+  when:
+    - agw_membership_state == 'present'
+    - agw_discovered_pool_ids_live | length == 0
+  tags:
+    - agw
+    - membership
+
+- name: Clear the saved Application Gateway backend pool tag now that the association is restored
+  # Tags cannot be truly removed via a single-key update on this module
+  # without resending every other tag, so this empties the value instead —
+  # sufficient to distinguish "no saved state" (used by the assert above)
+  # from a real saved resource ID.
+  azure.azcollection.azure_rm_virtualmachine:
+    name: "{{ target_vm_hostname }}"
+    resource_group: "{{ azure_resource_group }}"
+    append_tags: true
+    tags:
+      "{{ agw_state_tag_key }}": ""
+    auth_source: "{{ 'msi' if (azure_auth_mode | default('service_principal') == 'msi') else omit }}"
+    state: present
+  when:
+    - agw_membership_state == 'present'
+    - agw_discovered_pool_ids_live | length == 0
+  tags:
+    - agw
+    - membership

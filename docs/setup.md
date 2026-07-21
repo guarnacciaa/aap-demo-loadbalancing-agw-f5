@@ -15,16 +15,28 @@ The flag is read in `playbooks/aap_config.yml`: when `true`, the objects defined
 
 `group_vars/all/demo_variables.yml.example` **and** `vault.yml.example` group every variable/secret under the same banner:
 
-- `[ALWAYS REQUIRED]` — needed regardless of mode: AAP connection, object names, Git repo, credential names, the Azure connection and AGW/VM target identity variables (`azure_subscription_id`, `azure_tenant_id`, `azure_resource_group`, `agw_vm_hostname`, `agw_vm_private_ip`, `agw_name`, `agw_backend_pool_name`, `f5_vm_hostname`, `f5_vm_private_ip`), and the F5 BIG-IP connection variables (`f5_server`, `f5_username`, `f5_pool_name`, `f5_pool_member_port`, `f5_partition`) — the scenario job templates authenticate against and target these objects in both modes. `vault_azure_client_id`/`vault_azure_client_secret` are further conditional on a second, independent axis: `azure_auth_mode` (see [Azure authentication mode](#azure-authentication-mode-service-principal-vs-managed-identity)) — only required when it is `service_principal` (the default), unused when it is `msi`.
-- `[LAB/DEV ONLY]` — consumed exclusively by `Setup - Azure infrastructure` / `Teardown - Azure infrastructure`: `azure_create_network_resources` and the whole create-from-scratch networking/VM block (`azure_vnet_name`, `azure_subnet_name`, `azure_nsg_name`, address prefixes, AGW SKU settings, `azure_vm_size`, image settings, `azure_vm_admin_username`, `azure_vm_ssh_public_key`) in `demo_variables.yml.example`. No secret in this demo is exclusively lab/dev-only today — see `vault.yml.example`.
+- `[ALWAYS REQUIRED]` — needed regardless of mode: AAP connection, object names, Git repo, credential names, the Azure connection and AGW/VM target identity variables (`azure_subscription_id`, `azure_tenant_id`, `azure_resource_group`, `agw_vm_hostname`, `agw_vm_private_ip`, `f5_vm_hostname`, `f5_vm_private_ip`), and the F5 BIG-IP connection variables (`f5_server`, `f5_username`, `f5_pool_name`, `f5_pool_member_port`, `f5_partition`) — the scenario job templates authenticate against and target these objects in both modes. `vault_azure_client_id`/`vault_azure_client_secret` are further conditional on a second, independent axis: `azure_auth_mode` (see [Azure authentication mode](#azure-authentication-mode-service-principal-vs-managed-identity)) — only required when it is `service_principal` (the default), unused when it is `msi`.
+- `[LAB/DEV ONLY]` — consumed exclusively by `Setup - Azure infrastructure` / `Teardown - Azure infrastructure`: `agw_name`, `agw_backend_pool_name` (see [Application Gateway backend discovery](#application-gateway-backend-discovery) below), `azure_create_network_resources`, and the whole create-from-scratch networking/VM block (`azure_vnet_name`, `azure_subnet_name`, `azure_nsg_name`, address prefixes, AGW SKU settings, `azure_vm_size`, image settings, `azure_vm_admin_username`, `azure_vm_ssh_public_key`) in `demo_variables.yml.example`. No secret in this demo is exclusively lab/dev-only today — see `vault.yml.example`.
 
 Both `playbooks/aap_config.yml` (pre-task assertions) and `playbooks/verify.yml` enforce this split: the `[LAB/DEV ONLY]` checks only run `when: demo_manage_infrastructure | bool` (and, for `azure_vm_ssh_public_key`, additionally `when: azure_create_network_resources | bool`), so a customer/PoC deployment fails fast only on the variables it actually needs, never on unrelated provisioning variables.
 
 When `demo_manage_infrastructure: false`:
 
-- Set `azure_resource_group` / `agw_name` / `agw_backend_pool_name` / `agw_vm_private_ip` / `f5_server` / `f5_pool_name` / `f5_vm_private_ip` to the customer's existing resources.
-- Request Azure/F5 credentials scoped to **read + pool-membership-write only** — Contributor-level Azure permissions and F5 LTM pool-member write access are not needed for creating VNets/VMs/AGW, since no provisioning/teardown job template exists to use them.
+- Set `azure_resource_group` / `agw_vm_hostname` / `agw_vm_private_ip` / `f5_server` / `f5_pool_name` / `f5_vm_private_ip` to the customer's existing resources. Do **not** set `agw_name` / `agw_backend_pool_name` — they are lab/dev-only (see [Application Gateway backend discovery](#application-gateway-backend-discovery)).
+- Request Azure/F5 credentials scoped to **read + NIC write + pool-membership-write only** — Contributor-level Azure permissions and F5 LTM pool-member write access are not needed for creating VNets/VMs/AGW, since no provisioning/teardown job template exists to use them. The Azure role must additionally cover `Microsoft.Network/networkInterfaces/write` (NIC-based backend pool attach/detach) and `Microsoft.Compute/virtualMachines/write` (the `lb_agw_backend_pool_id` state tag written by `LB - Drain and disconnect VM` / `LB - Reconnect VM to pool`) — the built-in **Network Contributor** role on the VM's resource group covers both.
 - Switching modes later: change the flag and re-run `ansible-playbook playbooks/aap_config.yml --vault-id @prompt`. Going from `true` to `false` does **not** remove the infra job/workflow templates already created in AAP (dispatch only reconciles objects it is told about); delete them explicitly with `ansible-playbook playbooks/aap_cleanup.yml -e demo_cleanup_confirm=true --vault-id @prompt` and re-apply, or delete them manually from the Controller UI.
+
+## Application Gateway backend discovery
+
+This environment associates AGW backend pool membership with the target VM's **NIC ipConfiguration**, not with a static backend IP address. Every `LB - *` scenario and dry-run template discovers the Application Gateway — name, resource group, and backend pool — dynamically at runtime from `agw_vm_hostname`'s primary network interface, instead of reading it from a fixed `agw_name`/`agw_backend_pool_name` variable. See `playbooks/demo/tasks/agw_discover_from_nic.yml` for the implementation.
+
+What this means in practice:
+
+- Only `agw_vm_hostname` and `azure_resource_group` (the VM's resource group) are needed to identify the Application Gateway — in **every** deployment mode, including customer/PoC.
+- `agw_name` / `agw_backend_pool_name` are `[LAB/DEV ONLY]`: the only consumer is `Setup - Azure infrastructure`, which performs the *initial* NIC attachment when the demo bootstraps its own environment (both the bring-your-own and create-from-scratch sub-modes). They are never read by any `LB - *` scenario template.
+- `LB - Drain and disconnect VM` saves the removed backend pool's resource ID in a `lb_agw_backend_pool_id` tag on the VM. `LB - Reconnect VM to pool` reads that tag to restore the exact same association — this is what makes reconnect work correctly even when launched as a separate job run, potentially much later, once the NIC no longer carries a live association to discover. `LB - Pool status preview (dry run)` reports this saved state too, when the VM currently has no live association.
+- Required RBAC changed accordingly: the Azure credential needs NIC write and VM tag write (`Network Contributor` on the VM's resource group), not Application Gateway write — this demo never modifies the Application Gateway resource itself, only NIC-side backend pool membership.
+- **Limitation**: only the VM's first network interface and its primary IP configuration are inspected. Multi-NIC VMs, or a pool attached to a secondary NIC or non-primary IP configuration, are out of scope for this demo.
 
 ## Azure authentication mode: Service Principal vs Managed Identity
 
@@ -50,7 +62,7 @@ Notes:
 | Red Hat Ansible Automation Platform | 2.6+ |
 | `ansible-builder` | 3.x (for EE build) |
 | Podman | Latest stable |
-| Azure subscription | Service Principal (default) or Managed Identity with AGW write permissions — see [Azure authentication mode](#azure-authentication-mode-service-principal-vs-managed-identity) |
+| Azure subscription | Service Principal (default) or Managed Identity with NIC write + VM tag write permissions (`Network Contributor` on the VM's resource group) — see [Azure authentication mode](#azure-authentication-mode-service-principal-vs-managed-identity) and [Application Gateway backend discovery](#application-gateway-backend-discovery) |
 | F5 BIG-IP | Existing LTM instance with pool (BYO — not provisioned by this demo) |
 
 ## Supporting dependencies
@@ -63,7 +75,7 @@ F5 BIG-IP is bring-your-own (BYO); the F5 setup playbook registers pool members 
 |---|---|---|---|
 | Azure VNet, subnet, NSG | Cloud networking | `playbooks/setup/01_azure_setup.yml` (create-from-scratch mode) | Setup - Azure infrastructure |
 | Azure VMs (AGW backend + F5 member) | Cloud VMs | `playbooks/setup/01_azure_setup.yml` | Setup - Azure infrastructure |
-| Azure AGW backend pool membership | Cloud-native | `playbooks/setup/01_azure_setup.yml` | Setup - Azure infrastructure |
+| Azure AGW backend pool membership (initial NIC attach) | Cloud-native | `playbooks/setup/01_azure_setup.yml` | Setup - Azure infrastructure |
 | F5 LTM pool member registration | Third-party service (BYO) | `playbooks/setup/02_f5_setup.yml` | Setup - F5 pool member |
 
 ## Step 1 — Install collections and prepare local config
@@ -85,11 +97,15 @@ In `demo_variables.yml`, choose your provisioning mode:
 
 **Bring-your-own (default, `azure_create_network_resources: false`):**
 Supply `azure_resource_group`, `agw_vm_private_ip`, `agw_name`, `agw_backend_pool_name`,
-`f5_vm_private_ip`, `f5_server`, `f5_pool_name`.
+`f5_vm_private_ip`, `f5_server`, `f5_pool_name`. `agw_name`/`agw_backend_pool_name` are
+only used by `Setup - Azure infrastructure` to attach `agw_vm_hostname`'s NIC to that
+pool on first run — see [Application Gateway backend discovery](#application-gateway-backend-discovery).
 
 **Create-from-scratch (`azure_create_network_resources: true`):**
 Uncomment the create-from-scratch block in `demo_variables.yml` and supply naming variables.
-The setup playbook will create the VNet, subnet, NSG, VMs, and AGW backend pool.
+The setup playbook will create the VNet, subnet, NSG, and VMs, and attach the AGW VM's NIC
+to the pre-existing Application Gateway named by `agw_name`/`agw_backend_pool_name` (this
+demo never creates the Application Gateway resource itself, only backend pool membership).
 
 ## Step 3 — Build and push the custom Execution Environment
 

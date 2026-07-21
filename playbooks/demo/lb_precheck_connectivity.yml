@@ -2,11 +2,17 @@
 # Application Gateway and F5 BIG-IP. Confirms the injected Azure Service
 # Principal (or Managed Identity) and F5 BIG-IP API credentials can
 # authenticate and reach their respective backends, before any presence,
-# status, drain, or reconnect task runs. Deliberately does not reference
-# lb_backend_type or a target VM, so it stays useful even when the workflow
-# survey values are misconfigured — that specific check belongs to
-# LB - Pool status preview (dry run), which runs immediately after this one
-# in both demo workflows.
+# status, drain, or reconnect task runs.
+#
+# The Azure side resolves the target VM (via target_vm_hostname/
+# azure_resource_group) and its NIC, because this environment associates
+# Application Gateway backend pool membership with the VM's NIC — there is
+# no fixed agw_name to check independently of a VM anymore (see
+# tasks/agw_discover_from_nic.yml). This never hard-fails when the VM
+# currently has no live AGW association: that is a normal, expected state
+# (for example right after a disconnect workflow run), not a connectivity
+# problem. It only fails when the VM/NIC cannot be found, or when a live
+# association points at an Application Gateway that is not reachable.
 ---
 - name: Check Azure Application Gateway and F5 BIG-IP credentials and connectivity
   hosts: localhost
@@ -15,46 +21,66 @@
     - azure.azcollection
     - ansible.builtin
 
+  vars:
+    target_vm_hostname: "{{ target_vm_hostname | mandatory }}"
+
   pre_tasks:
     - name: Validate required connectivity check variables
       ansible.builtin.assert:
         that:
           - azure_resource_group is defined
           - azure_resource_group != "CHANGE_ME"
-          - agw_name is defined
-          - agw_name != "CHANGE_ME"
           - f5_server is defined
           - f5_server != "CHANGE_ME"
         fail_msg: >-
-          Set azure_resource_group, agw_name, and f5_server in
-          demo_variables.yml and re-apply aap_config.yml before running
-          connectivity checks.
+          Set azure_resource_group and f5_server in demo_variables.yml and
+          re-apply aap_config.yml before running connectivity checks.
       tags:
         - always
 
   tasks:
-    - name: Retrieve Application Gateway configuration to confirm Azure reachability
+    - name: Resolve the target VM's NIC and any live Application Gateway backend pool association
+      ansible.builtin.include_tasks: tasks/agw_discover_from_nic.yml
+      tags:
+        - azure
+        - precheck
+
+    - name: Confirm the resolved Application Gateway is reachable when the VM NIC has a live association
       azure.azcollection.azure_rm_appgateway_info:
-        resource_group: "{{ azure_resource_group }}"
-        name: "{{ agw_name }}"
+        resource_group: "{{ agw_discovered_resource_group }}"
+        name: "{{ agw_discovered_name }}"
         # AAP's Azure RM credential injects Service Principal env vars by
         # default; auth_source: msi switches to Managed Identity instead —
         # see credentials.yml and docs/setup.md.
         auth_source: "{{ 'msi' if (azure_auth_mode | default('service_principal') == 'msi') else omit }}"
       register: agw_connectivity_check
+      when: agw_discovered_pool_ids_live | length > 0
       tags:
         - azure
         - precheck
 
-    - name: Assert the Application Gateway was found
+    - name: Assert the Application Gateway was found, when a live NIC association exists
       ansible.builtin.assert:
         that:
           - agw_connectivity_check.applicationgateways | length == 1
         fail_msg: >-
-          Application Gateway {{ agw_name }} not found in resource group
-          {{ azure_resource_group }}. Check azure_resource_group/agw_name and
-          the configured credentials (or the Managed Identity RBAC assignment
-          when azure_auth_mode: msi).
+          Application Gateway {{ agw_discovered_name }} (resolved from VM
+          {{ target_vm_hostname }}'s NIC) was not reachable in resource
+          group {{ agw_discovered_resource_group }}. Check credentials (or
+          the Managed Identity RBAC assignment when azure_auth_mode: msi).
+      when: agw_discovered_pool_ids_live | length > 0
+      tags:
+        - azure
+        - precheck
+
+    - name: Report Azure reachability when the VM NIC has no live Application Gateway association
+      ansible.builtin.debug:
+        msg: >-
+          VM {{ target_vm_hostname }} found in resource group
+          {{ azure_resource_group }} — Azure Resource Manager is reachable.
+          Its NIC currently has no Application Gateway backend pool
+          association (expected if the VM is already disconnected).
+      when: agw_discovered_pool_ids_live | length == 0
       tags:
         - azure
         - precheck
@@ -75,13 +101,8 @@
         - f5
         - precheck
 
-    - name: Report connectivity check results
+    - name: Report F5 connectivity check result
       ansible.builtin.debug:
-        msg:
-          - >-
-            Azure: reached Application Gateway {{ agw_name }} in
-            {{ azure_resource_group }} (SKU
-            {{ agw_connectivity_check.applicationgateways[0].sku.name | default('unknown') }}).
-          - "F5: reached pool {{ f5_pool_name }} (partition {{ f5_partition }}) on {{ f5_server }}."
+        msg: "F5: reached pool {{ f5_pool_name }} (partition {{ f5_partition }}) on {{ f5_server }}."
       tags:
         - precheck

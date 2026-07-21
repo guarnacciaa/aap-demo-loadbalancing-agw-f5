@@ -23,6 +23,16 @@ Phases 0 and 2 only exist when `demo_manage_infrastructure: true` (default); see
 
 Launch either scenario workflow from AAP **Templates** with survey values for `lb_backend_type`, hostname, and IP.
 
+## Application Gateway backend discovery
+
+This environment associates AGW backend pool membership with the target VM's **NIC ipConfiguration**, not with a static backend IP address. Every `LB - *` scenario and dry-run template therefore discovers the Application Gateway (name, resource group, backend pool) dynamically at runtime from `agw_vm_hostname`'s primary network interface — see `playbooks/demo/tasks/agw_discover_from_nic.yml`. There is no `agw_name` / `agw_backend_pool_name` variable to configure for these templates; only `agw_vm_hostname` and `azure_resource_group` (the VM's resource group) are needed.
+
+`LB - Drain and disconnect VM` records the removed backend pool's resource ID in a `lb_agw_backend_pool_id` tag on the VM, so `LB - Reconnect VM to pool` — potentially launched much later, in a separate job run — can restore the exact same NIC-to-pool association without it being passed in again (mirroring how a stateful detach/reattach controller would persist this information). `LB - Pool status preview (dry run)` reports both the live association and, when absent, this saved one.
+
+`agw_name` / `agw_backend_pool_name` still exist as variables, but only `Setup - Azure infrastructure` reads them (lab/dev only), to perform the *initial* NIC attachment when the demo bootstraps its own environment — see [Deployment modes](#deployment-modes) and [docs/setup.md](docs/setup.md#application-gateway-backend-discovery).
+
+**Limitation:** only the VM's first network interface and its primary IP configuration are inspected — multi-NIC VMs, or a pool attached to a secondary NIC/IP configuration, are out of scope for this demo.
+
 ## Azure authentication mode
 
 `azure_auth_mode` in `demo_variables.yml` (default `service_principal`) selects how every `azure.azcollection` task authenticates, independent of the deployment mode below:
@@ -43,7 +53,7 @@ Launch either scenario workflow from AAP **Templates** with survey values for `l
 | Lab / dev | `true` (default) | Full lifecycle: `Setup - Azure infrastructure`, `Setup - F5 pool member`, `Teardown - Azure infrastructure`, `Teardown - F5 pool member`, `WF - Demo setup`, `WF - Demo teardown`, plus all scenario and dry-run objects | You are running the demo yourself and want AAP to create and destroy the Azure VMs/AGW and register the F5 pool member |
 | Customer / PoC | `false` | Only the scenario job templates (`LB - Connectivity check (dry run)`, `LB - Pool status preview (dry run)`, `LB - Verify VM in pool`, `LB - Verify connection status`, `LB - Drain and disconnect VM`, `LB - Reconnect VM to pool`, `LB - Collect results`) and their two workflows | The customer already provides the Azure VM/AGW and F5 pool member; no provisioning or teardown object is created in AAP, removing any risk of accidentally launching a job that creates duplicate Azure resources or removes the customer's existing F5 pool member |
 
-In customer mode, set `azure_resource_group` / `agw_name` / `agw_backend_pool_name` / `agw_vm_private_ip` / `f5_server` / `f5_pool_name` / `f5_vm_private_ip` to the customer's existing resources.
+In customer mode, set `azure_resource_group` / `agw_vm_hostname` / `agw_vm_private_ip` / `f5_server` / `f5_pool_name` / `f5_vm_private_ip` to the customer's existing resources. `agw_name` / `agw_backend_pool_name` do **not** need to be set in customer mode — the Application Gateway is discovered dynamically from the VM's NIC (see [Application Gateway backend discovery](#application-gateway-backend-discovery)); those two variables only matter to `Setup - Azure infrastructure`, which is not even deployed in customer mode.
 
 `group_vars/all/demo_variables.yml.example` **and** `vault.yml.example` mark every variable/secret with `[ALWAYS REQUIRED]` or `[LAB/DEV ONLY]` banners so you can see at a glance what customer/PoC mode needs. `playbooks/aap_config.yml` and `playbooks/verify.yml` enforce this: the `[LAB/DEV ONLY]` variables are only validated when `demo_manage_infrastructure: true`, so leaving them at their example defaults never blocks a customer/PoC deployment.
 
@@ -124,8 +134,8 @@ Read-only checks, useful in both deployment modes. Wired as the first two nodes 
 
 | Template | Playbook | Checks |
 |---|---|---|
-| LB - Connectivity check (dry run) | `demo/lb_precheck_connectivity.yml` | Confirms the Azure Application Gateway and the F5 BIG-IP API are both reachable with the configured credentials — never mutates anything |
-| LB - Pool status preview (dry run) | `demo/lb_pool_preview.yml` | Reports whether the target VM is currently present in the AGW pool or as an F5 member, i.e. what drain/disconnect or reconnect would actually change — never mutates anything |
+| LB - Connectivity check (dry run) | `demo/lb_precheck_connectivity.yml` | Confirms Azure (via the target VM/NIC) and the F5 BIG-IP API are both reachable with the configured credentials — never mutates anything |
+| LB - Pool status preview (dry run) | `demo/lb_pool_preview.yml` | Reports whether the target VM is currently present in the AGW pool (discovered from its NIC) or as an F5 member, i.e. what drain/disconnect or reconnect would actually change — never mutates anything |
 
 ## Collections
 

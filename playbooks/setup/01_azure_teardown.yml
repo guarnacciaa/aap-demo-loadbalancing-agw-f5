@@ -41,19 +41,53 @@
 
   tasks:
     # =========================================================================
-    # REMOVE AGW BACKEND POOL MEMBERSHIP (both modes)
+    # REMOVE AGW BACKEND POOL MEMBERSHIP (both modes, NIC-based association)
     # =========================================================================
     # Clear the backend pool before removing the VM so AGW probes do not
-    # fail against a non-existent backend.
-    - name: Remove AGW VM from Application Gateway backend pool
-      azure.azcollection.azure_rm_appgateway:
-        name: "{{ agw_name }}"
+    # fail against a non-existent backend. Mirrors the NIC-based attach in
+    # 01_azure_setup.yml — see that playbook's AGW section for the reasoning
+    # (membership lives on the NIC's ipConfiguration, not on the AGW's
+    # backend_address_pools, so azure_rm_networkinterface is used instead of
+    # azure_rm_appgateway). ignore_errors covers a VM/NIC that was already
+    # removed or never existed.
+    - name: Look up the AGW backend VM to resolve its network interface
+      azure.azcollection.azure_rm_virtualmachine_info:
         resource_group: "{{ azure_resource_group }}"
+        name: "{{ agw_vm_hostname }}"
         auth_source: "{{ 'msi' if (azure_auth_mode | default('service_principal') == 'msi') else omit }}"
-        backend_address_pools:
-          - name: "{{ agw_backend_pool_name }}"
-            backend_addresses: []
+      register: agw_vm_lookup
+      ignore_errors: true
+      tags:
+        - azure
+        - agw
+
+    - name: Retrieve current configuration of the AGW backend VM NIC
+      azure.azcollection.azure_rm_networkinterface_info:
+        resource_group: "{{ agw_vm_lookup.vms[0].resource_group }}"
+        name: "{{ agw_vm_lookup.vms[0].network_interface_names[0] }}"
+        auth_source: "{{ 'msi' if (azure_auth_mode | default('service_principal') == 'msi') else omit }}"
+      register: agw_vm_nic_current
+      when: agw_vm_lookup.vms | default([]) | length > 0
+      ignore_errors: true
+      tags:
+        - azure
+        - agw
+
+    - name: Detach the AGW backend VM NIC from the Application Gateway backend pool
+      azure.azcollection.azure_rm_networkinterface:
+        name: "{{ agw_vm_nic_current.networkinterfaces[0].name }}"
+        resource_group: "{{ agw_vm_nic_current.networkinterfaces[0].resource_group }}"
+        virtual_network_name: "{{ agw_vm_nic_current.networkinterfaces[0].virtual_network.name }}"
+        subnet_name: "{{ agw_vm_nic_current.networkinterfaces[0].subnet }}"
+        ip_configurations:
+          - name: "{{ agw_vm_nic_current.networkinterfaces[0].ip_configurations[0].name }}"
+            primary: "{{ agw_vm_nic_current.networkinterfaces[0].ip_configurations[0].primary }}"
+            private_ip_address: "{{ agw_vm_nic_current.networkinterfaces[0].ip_configurations[0].private_ip_address }}"
+            private_ip_allocation_method: "{{ agw_vm_nic_current.networkinterfaces[0].ip_configurations[0].private_ip_allocation_method }}"
+            application_gateway_backend_address_pools: []
+        auth_source: "{{ 'msi' if (azure_auth_mode | default('service_principal') == 'msi') else omit }}"
         state: present
+      when: agw_vm_nic_current.networkinterfaces | default([]) | length > 0
       ignore_errors: true
       tags:
         - azure

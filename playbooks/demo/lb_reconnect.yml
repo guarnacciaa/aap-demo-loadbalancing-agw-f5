@@ -1,4 +1,8 @@
 # Description: Re-insert VM into AGW backend pool or enable F5 pool member.
+# AGW: re-attaches the target VM's NIC to the backend pool resource ID saved
+# by lb_drain_disconnect.yml in the VM's tags (NIC-based membership — see
+# tasks/agw_discover_from_nic.yml). Fails clearly if no saved association
+# exists for this VM.
 ---
 - name: Reconnect VM to load balancer pool
   hosts: localhost
@@ -17,55 +21,16 @@
     - name: Add VM back to Application Gateway backend pool
       when: lb_backend_type == 'agw'
       block:
-        - name: Read current Application Gateway configuration
-          azure.azcollection.azure_rm_appgateway_info:
-            resource_group: "{{ azure_resource_group }}"
-            name: "{{ agw_name }}"
-            # See lb_verify_presence.yml: auth_source switches to Managed
-            # Identity when azure_auth_mode: msi.
-            auth_source: "{{ 'msi' if (azure_auth_mode | default('service_principal') == 'msi') else omit }}"
-          register: agw_info
+        - name: Resolve the target VM's NIC and its current/saved Application Gateway backend pool association
+          ansible.builtin.include_tasks: tasks/agw_discover_from_nic.yml
           tags:
             - agw
             - reconnect
 
-        - name: Compute AGW pools with target VM IP restored
-          ansible.builtin.set_fact:
-            agw_updated_pools: >-
-              {{
-                agw_info.applicationgateways[0].backend_address_pools
-                | json_query("[].{name: name, backend_addresses: backend_addresses}")
-                | map('combine', {
-                    'backend_addresses': (
-                      backend_addresses + [{'ip_address': target_vm_ip}]
-                      if (
-                        name == agw_backend_pool_name
-                        and (backend_addresses | selectattr('ip_address', 'equalto', target_vm_ip) | list | length) == 0
-                      )
-                      else backend_addresses
-                    )
-                  })
-                | list
-              }}
-          tags:
-            - agw
-            - reconnect
-
-        - name: Apply Application Gateway backend pool update
-          azure.azcollection.azure_rm_appgateway:
-            resource_group: "{{ azure_resource_group }}"
-            name: "{{ agw_name }}"
-            location: "{{ agw_info.applicationgateways[0].location }}"
-            sku: "{{ agw_info.applicationgateways[0].sku }}"
-            gateway_ip_configurations: "{{ agw_info.applicationgateways[0].gateway_ip_configurations }}"
-            frontend_ip_configurations: "{{ agw_info.applicationgateways[0].frontend_ip_configurations }}"
-            frontend_ports: "{{ agw_info.applicationgateways[0].frontend_ports }}"
-            backend_address_pools: "{{ agw_updated_pools }}"
-            backend_http_settings_collection: "{{ agw_info.applicationgateways[0].backend_http_settings_collection }}"
-            http_listeners: "{{ agw_info.applicationgateways[0].http_listeners }}"
-            request_routing_rules: "{{ agw_info.applicationgateways[0].request_routing_rules }}"
-            probes: "{{ agw_info.applicationgateways[0].probes | default(omit) }}"
-            auth_source: "{{ 'msi' if (azure_auth_mode | default('service_principal') == 'msi') else omit }}"
+        - name: Re-attach the target VM NIC to its saved Application Gateway backend pool
+          ansible.builtin.include_tasks: tasks/agw_membership_update.yml
+          vars:
+            agw_membership_state: present
           tags:
             - agw
             - reconnect
