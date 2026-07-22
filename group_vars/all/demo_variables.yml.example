@@ -65,6 +65,14 @@ demo_organization_description: AGW and F5 load balancer VM management demo
 demo_project_name: Load Balancing AGW F5 Demo
 demo_label_name: loadbalancing-agw-f5
 demo_inventory_name: Demo-LoadBalancingAGWF5
+# Child inventory names — must be unique across artifacts, not the bare
+# "Azure-Resources"/"AWS-Resources" shape. ansible.controller.host and
+# ansible.controller.group resolve their inventory: parameter by name only,
+# with no organization filter (module.resolve_name_to_id), so a same-named
+# inventory in another artifact's Organization makes aap_config.yml fail with
+# "returned 2 items, expected 1". See artifact--demo-variables.mdc.
+demo_azure_inventory_name: Azure-Resources-LoadBalancingAGWF5
+demo_aws_inventory_name: AWS-Resources-LoadBalancingAGWF5
 demo_execution_environment_name: ee-loadbalancing-agw-f5
 
 # ============================================================================
@@ -220,5 +228,11 @@ drain_poll_interval: 15
 # ============================================================================
 # Credential names (must match credentials.yml) [ALWAYS REQUIRED]
 # ============================================================================
-azure_credential_name: Azure Service Principal
+# Must be unique across artifacts, not a generic placeholder like "Azure
+# Service Principal": job_template's credentials: list resolves each name via
+# a name-only Controller API lookup with no organization filter
+# (module.resolve_name_to_id), so a same-named credential in another
+# artifact's Organization makes aap_config.yml fail with
+# "returned 2 items, expected 1". See artifact--demo-variables.mdc.
+azure_credential_name: Azure Service Principal - Load Balancing AGW F5
 f5_credential_name: F5 BIG-IP API

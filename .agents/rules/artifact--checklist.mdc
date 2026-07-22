@@ -8,7 +8,7 @@ alwaysApply: true
 - [ ] Repository root is named **`aap-demo-<meaningful-slug>`** (or you have documented the equivalent layout for your environment)
 - [ ] CasC; **`infra.aap_configuration`**; sensible **`group_vars/all/`** split — per **`artifact--casc.mdc`**
 - [ ] **`aap_config.yml`** / **`aap_cleanup.yml`** follow the standard structure, deletion order, confirmation pattern, and the organization-deletion guard — per **`artifact--casc-playbooks.mdc`**
-- [ ] **`demo_organization_name`** and **`demo_inventory_name`** are unique across every sibling artifact (checked with the `grep` command in **`artifact--demo-variables.mdc`**), not a shared placeholder
+- [ ] **`demo_organization_name`**, **`demo_inventory_name`**, every child inventory name (e.g. `demo_azure_inventory_name`), and **`hub_registry_credential_name`** are unique across every sibling artifact (checked with the `grep` command in **`artifact--demo-variables.mdc`**), not a shared placeholder
 - [ ] **`collections/requirements.yml`** and **`ansible.cfg.example`** with `collections_path` (or equivalent) for **`collections/`**; **README** documents collection install, Ansible config layout, secrets versus **`*.example`** files, and ordered **`playbooks/setup/`** naming when applicable — per **`artifact--layout.mdc`**
 - [ ] README and **`docs/`** follow **`all--english-content.mdc`**; no emoji, strong structure, cross-links, tables, ASCII diagrams as needed — per **`artifact--readme.mdc`**
 - [ ] README's first badge is the `Status` badge (`WIP` or `Ready`) — per **`artifact--status-badge.mdc`**

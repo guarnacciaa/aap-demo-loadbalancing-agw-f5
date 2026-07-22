@@ -86,27 +86,51 @@ recurring source of cross-demo incidents, not a style nit:
 |---|---|---|
 | `demo_organization_name` | `playbooks/aap_cleanup.yml` deletes the Organization by name as its last step; the delete cascades to **every** Project/Inventory/EE/Credential under it | Cleaning up one demo destroys the other demo's AAP objects (see the organization deletion guard in `artifact--casc-playbooks.mdc`, which mitigates but does not replace unique naming) |
 | `demo_inventory_name` | Same Organization collision risk, plus ambiguous inventory lookups in constructed-inventory sync tasks | Wrong inventory targeted or sync task resolves the wrong record |
-| `hub_registry_credential_name` | `ansible.controller.execution_environment`'s `credential:` field resolves via a name-only Controller API lookup with **no organization filter** (see `artifact--execution-environment.mdc`) | `aap_config.yml` fails with `returned 2 items, expected 1` the moment a second artifact creates a same-named credential in its own Organization |
+| `demo_azure_inventory_name` / `demo_aws_inventory_name` (or any other child inventory variable) | `ansible.controller.host`, `ansible.controller.group`, and `input_inventories` on `ansible.controller.inventory` all resolve their `inventory:` reference by a name-only Controller API lookup with **no organization filter** (`module.resolve_name_to_id`) | `aap_config.yml` fails with `returned 2 items, expected 1` the moment a second artifact creates a same-named child inventory (e.g. bare `Azure-Resources`) in its own Organization |
+| `hub_registry_credential_name` | `ansible.controller.execution_environment`'s `credential:` field resolves via the same kind of name-only Controller API lookup with **no organization filter** (see `artifact--execution-environment.mdc`) | `aap_config.yml` fails with `returned 2 items, expected 1` the moment a second artifact creates a same-named credential in its own Organization |
+| Any other `*_credential_name` (e.g. `azure_credential_name`, `aws_credential_name`, `controller_credential_name`) | `job_template`'s and `workflow_job_template`'s `credentials:` list, and `workflow_job_template_node`'s `credentials:`/`execution_environment:` fields, all resolve names the same unscoped way | Same `returned 2 items, expected 1` failure — an audit found generic placeholders like `Azure Service Principal` and `AAP-Controller-Credential` reused verbatim across otherwise-unrelated artifacts; always suffix with the artifact name/slug |
+
+The common root cause above (`ansible.controller.*` modules resolving a bare-name reference
+field with no organization filter) is not limited to the rows listed — it applies to **any**
+name a CasC object references by string instead of by the object it is defined alongside.
+Treat every AAP object name in `demo_variables.yml.example` and `group_vars/all/*.yml` as
+artifact-unique by default; only object names that are true singletons controller-wide
+(e.g. `credential_type` names for built-in types) are safe to reuse. Run the uniqueness
+`grep` below across **all** `*_name` and `*_credential_name` variables, not just the three
+historically-bitten ones, when auditing or adding an artifact.
 
 Before finalizing a new artifact's `demo_variables.yml.example`:
 
-- Set all three variables above to values **derived from the artifact slug or title** — the
+- Set every AAP object name to a value **derived from the artifact slug or title** — the
   same convention already used for `demo_project_name` and `demo_execution_environment_name`
   (e.g. `ee-<slug>`). Do not reuse a generic placeholder like `Multicloud Demo`,
-  `Demo-Multicloud`, or bare `PAH Container Registry` across artifacts.
-- Verify uniqueness against every sibling artifact before shipping:
+  `Demo-Multicloud`, bare `PAH Container Registry`, or bare `Azure-Resources`/`AWS-Resources`
+  across artifacts.
+- Verify uniqueness against every sibling artifact before shipping. Check the well-known
+  identity variables plus **every** `*_name`/`*_credential_name` variable, since new
+  variables (child inventories, per-cloud credentials, etc.) are just as exposed:
 
   ```bash
-  grep -rn "demo_organization_name:\|demo_inventory_name:\|hub_registry_credential_name:" \
+  grep -rhoE "^[a-z0-9_]+_(name|credential_name):\s*\"?[^\"#{]+" \
+    artifacts/demos/*/group_vars/all/demo_variables.yml artifacts/demos/*/group_vars/all/demo_variables.yml.example \
+    | sed -E 's/\s+$//' | sort | uniq -d
+  ```
+
+  Any `key: value` line printed by that pipeline is reused verbatim across two or more
+  artifacts and must be disambiguated. For a quick manual check of just the
+  historically-bitten variables:
+
+  ```bash
+  grep -rn "demo_organization_name:\|demo_inventory_name:\|demo_azure_inventory_name:\|demo_aws_inventory_name:\|hub_registry_credential_name:" \
     artifacts/demos/*/group_vars/all/demo_variables.yml.example
   ```
 
   If any value matches an existing artifact's value, rename the new artifact's value —
   never the existing one, unless the two artifacts are an intentional multi-artifact split
   of the same engagement that is meant to share one Organization (rare; document this
-  explicitly in both READMEs if so — and note that `hub_registry_credential_name` must stay
-  unique even then, since the EE credential lookup bug is not related to Organization
-  sharing).
+  explicitly in both READMEs if so — and note that `hub_registry_credential_name` and any
+  child inventory name must stay unique even then, since these name-resolution bugs are not
+  related to Organization sharing).
 
 ## EDA connection block (when EDA is in scope)
 

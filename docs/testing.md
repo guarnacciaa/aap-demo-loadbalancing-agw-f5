@@ -26,8 +26,8 @@ Tracks testing progress for this demo. Update after each session. For procedural
 | Component | Status | Last tested | Notes |
 |---|---|---|---|
 | Demo-LoadBalancingAGWF5 (constructed parent) | Not tested | — | |
-| Azure-Resources (child) | Not tested | — | |
-| AWS-Resources (child — reserved, unused in UC1) | Not tested | — | |
+| Azure-Resources-LoadBalancingAGWF5 (child) | Not tested | — | |
+| AWS-Resources-LoadBalancingAGWF5 (child — reserved, unused in UC1) | Not tested | — | |
 
 ### Setup and teardown job templates
 

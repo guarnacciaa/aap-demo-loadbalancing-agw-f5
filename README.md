@@ -107,7 +107,7 @@ flowchart TB
 
 ```
 Demo-LoadBalancingAGWF5
-└── Azure-Resources
+└── Azure-Resources-LoadBalancingAGWF5
     ├── azure_vms (AGW + F5 VMs)
     └── azure_loadbalancers (AGW/F5 metadata)
 ```

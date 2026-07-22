@@ -1,13 +1,13 @@
 ---
 controller_groups:
   - name: azure_vms
-    inventory: Azure-Resources
+    inventory: "{{ demo_azure_inventory_name }}"
     hosts:
       - "{{ agw_vm_hostname }}"
       - "{{ f5_vm_hostname }}"
 
   - name: azure_loadbalancers
-    inventory: Azure-Resources
+    inventory: "{{ demo_azure_inventory_name }}"
     # Descriptive metadata only — not read by any LB - * scenario template,
     # which discovers the Application Gateway from the VM's NIC at runtime
     # instead (see docs/setup.md#application-gateway-backend-discovery).

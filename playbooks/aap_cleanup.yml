@@ -92,8 +92,8 @@
         state: absent
         <<: *controller_auth
       loop:
-        - Azure-Resources
-        - AWS-Resources
+        - "{{ demo_azure_inventory_name }}"
+        - "{{ demo_aws_inventory_name }}"
         - "{{ demo_inventory_name }}"
       ignore_errors: true
       tags:
