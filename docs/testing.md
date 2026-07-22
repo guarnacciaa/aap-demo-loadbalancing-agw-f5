@@ -25,7 +25,7 @@ Tracks testing progress for this demo. Update after each session. For procedural
 
 | Component | Status | Last tested | Notes |
 |---|---|---|---|
-| Demo-Multicloud (constructed parent) | Not tested | — | |
+| Demo-LoadBalancingAGWF5 (constructed parent) | Not tested | — | |
 | Azure-Resources (child) | Not tested | — | |
 | AWS-Resources (child — reserved, unused in UC1) | Not tested | — | |
 

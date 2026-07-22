@@ -60,11 +60,11 @@ aap_validate_certs: false
 aap_controller_api_prefix: /api/controller/v2
 
 # --- Demo identity --- [ALWAYS REQUIRED]
-demo_organization_name: Multicloud Demo
+demo_organization_name: Load Balancing AGW F5 Demo
 demo_organization_description: AGW and F5 load balancer VM management demo
 demo_project_name: Load Balancing AGW F5 Demo
 demo_label_name: loadbalancing-agw-f5
-demo_inventory_name: Demo-Multicloud
+demo_inventory_name: Demo-LoadBalancingAGWF5
 demo_execution_environment_name: ee-loadbalancing-agw-f5
 
 # ============================================================================

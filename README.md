@@ -106,7 +106,7 @@ flowchart TB
 ## Multicloud inventory UX (UC4)
 
 ```
-Demo-Multicloud
+Demo-LoadBalancingAGWF5
 └── Azure-Resources
     ├── azure_vms (AGW + F5 VMs)
     └── azure_loadbalancers (AGW/F5 metadata)

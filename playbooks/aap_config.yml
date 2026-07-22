@@ -189,7 +189,7 @@
 
     # Dispatch creates child inventories first, but input_inventories on the
     # constructed parent is not always applied on initial create. Reconcile
-    # after dispatch so Demo-Multicloud aggregates Azure-Resources and AWS-Resources.
+    # after dispatch so Demo-LoadBalancingAGWF5 aggregates Azure-Resources and AWS-Resources.
     - name: Wire constructed inventory input sources
       ansible.controller.inventory:
         name: "{{ demo_inventory_name }}"

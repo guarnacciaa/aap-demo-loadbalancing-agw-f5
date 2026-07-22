@@ -1,5 +1,9 @@
 ---
-# UC4: shared multicloud inventory naming across PoC artifacts.
+# UC1: this artifact's own inventory hierarchy, following the same shape
+# (parent + Azure-Resources/AWS-Resources children) as its sibling UC2/UC3
+# PoC artifacts for a consistent multicloud UX. Each artifact uses its own
+# Organization and Inventory names — see MULTICLOUD-POC-UC4.md and
+# artifact--demo-variables.mdc for why these must never be shared.
 controller_inventories:
   - name: "{{ demo_inventory_name }}"
     organization: "{{ demo_organization_name }}"

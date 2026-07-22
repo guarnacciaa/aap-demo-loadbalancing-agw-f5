@@ -75,6 +75,35 @@ demo does not use it — it adds noise without value.
 aap_token: "{{ vault_aap_token }}"
 ```
 
+## Organization and inventory names must be unique across artifacts (mandatory)
+
+`demo_organization_name` and `demo_inventory_name` are the two identity variables that
+`playbooks/aap_cleanup.yml` uses as the **blast radius boundary** for destructive deletes:
+deleting an Organization in AAP cascades to every Project, Inventory, Execution Environment,
+and Credential filed under it — not just the ones this demo's CasC created. If two unrelated
+artifacts default to the same Organization name (or the same Inventory name) and both get
+deployed to the same real AAP without the operator overriding the placeholder, running
+`aap_cleanup.yml` for one demo silently destroys the other demo's objects, including its
+Project's synced content.
+
+Before finalizing a new artifact's `demo_variables.yml.example`:
+
+- Set `demo_organization_name` and `demo_inventory_name` to values **derived from the
+  artifact slug** — the same convention already used for `demo_project_name` and
+  `demo_execution_environment_name` (e.g. `ee-<slug>`). Do not reuse a generic placeholder
+  like `Multicloud Demo` or `Demo-Multicloud` across artifacts.
+- Verify uniqueness against every sibling artifact before shipping:
+
+  ```bash
+  grep -rn "demo_organization_name:\|demo_inventory_name:" \
+    artifacts/demos/*/group_vars/all/demo_variables.yml.example
+  ```
+
+  If any value matches an existing artifact's value, rename the new artifact's value —
+  never the existing one, unless the two artifacts are an intentional multi-artifact split
+  of the same engagement that is meant to share one Organization (rare; document this
+  explicitly in both READMEs if so).
+
 ## EDA connection block (when EDA is in scope)
 
 ```yaml

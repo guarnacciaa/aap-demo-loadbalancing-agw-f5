@@ -209,7 +209,7 @@ Number sections `# --- N. ... ---`. Every delete: `state: absent`, `ignore_error
 | 8 | Execution environments | `ansible.controller.execution_environment` | |
 | 9 | Users / teams | `ansible.controller.user` / `.team` | When demo CasC creates RBAC objects |
 | 10 | Labels | **Skip** — debug task only | No direct delete API |
-| last | Organization | `ansible.controller.organization` | |
+| last | Organization safety check + Organization | lookup via `ansible.controller.controller_api`, then `ansible.controller.organization` | Guard **before** delete; see below |
 
 **Labels skip task (required):**
 
@@ -220,6 +220,67 @@ Number sections `# --- N. ... ---`. Every delete: `state: absent`, `ignore_error
       tags:
         - labels
 ```
+
+### Organization deletion guard (required)
+
+`ansible.controller.organization` with `state: absent` cascades to **every** Project,
+Inventory, Execution Environment, and Credential filed under that Organization — not only
+the objects this demo's CasC created. If `demo_organization_name` ever collides with another
+artifact's Organization name (see `artifact--demo-variables.mdc`), this step would silently
+destroy the other demo's objects. Guard the delete by looking up the Organization's
+`related_field_counts` first and refusing to proceed if it holds more than the one Project
+this demo owns:
+
+```yaml
+    # --- last. Organization (parent of all objects above) ---
+    # Look up related_field_counts before deleting: an Organization delete cascades to
+    # every Project/Inventory/EE/Credential filed under it, including ones this demo did
+    # not create if demo_organization_name collides with another artifact's Organization.
+    - name: Resolve organization record before deletion
+      ansible.builtin.set_fact:
+        _demo_organization: >-
+          {{
+            query(
+              'ansible.controller.controller_api',
+              'organizations',
+              host='https://' ~ aap_hostname,
+              username=aap_username,
+              password=aap_password,
+              validate_certs=aap_validate_certs,
+              query_params={'name': demo_organization_name}
+            ) | first | default({})
+          }}
+      tags:
+        - organization
+
+    - name: Refuse to delete an organization that holds more than this demo's project
+      ansible.builtin.assert:
+        that:
+          - (_demo_organization.related_field_counts.projects | default(0)) <= 1
+        fail_msg: >-
+          Organization "{{ demo_organization_name }}" has
+          {{ _demo_organization.related_field_counts.projects | default(0) }} projects —
+          more than the single project this demo owns. It is likely shared with another
+          demo. Refusing to delete it to avoid destroying objects this playbook did not
+          create. Rename demo_organization_name in demo_variables.yml to a value unique to
+          this artifact, or remove the unrelated objects manually before re-running with
+          --tags organization.
+      when: _demo_organization | length > 0
+      tags:
+        - organization
+
+    - name: Remove organization
+      ansible.controller.organization:
+        name: "{{ demo_organization_name }}"
+        state: absent
+        <<: *controller_auth
+      ignore_errors: true
+      tags:
+        - organization
+```
+
+Do not skip this guard even when `demo_organization_name` looks unique today — it is the
+only runtime safety net against future collisions or manual duplication in the real AAP.
 
 **Post-task:** short debug summary with re-deploy command (`aap_config.yml`). If EDA objects exist, point to **`playbooks/eda_cleanup.yml`** instead of deleting EDA from `aap_cleanup.yml` (EDA drift-detection pattern).
 

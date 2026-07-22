@@ -161,7 +161,7 @@ first two nodes of both scenario workflows.
 
 ## Multicloud inventory
 
-Parent inventory `Demo-Multicloud` with child `Azure-Resources` hosts both demo VMs.
+Parent inventory `Demo-LoadBalancingAGWF5` with child `Azure-Resources` hosts both demo VMs.
 Group `azure_loadbalancers` holds AGW/F5 metadata variables for templates.
 
 ## Teardown
