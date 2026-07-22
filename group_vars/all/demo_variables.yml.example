@@ -92,7 +92,7 @@ demo_execution_environment_image: CHANGE_ME/ee-loadbalancing-agw-f5:latest
 
 # Private Automation Hub container registry (for Controller EE image pulls).
 # Use the Gateway host or IP without a URL scheme; must match demo_execution_environment_image.
-hub_registry_credential_name: PAH Container Registry
+hub_registry_credential_name: PAH Container Registry - Load Balancing AGW F5
 hub_registry_host: "{{ aap_hostname | regex_replace('^https?://', '') | regex_replace('/$', '') }}"
 
 # ============================================================================
