@@ -46,9 +46,15 @@ additional_build_steps:
   prepend_builder:
     # Pin Python to 3.12 so pip installs match the final image Python version.
     - ENV PYCMD=/usr/bin/python3.12
-    # Install C headers needed by Python packages with native extensions
-    # (azure-mgmt-network pulls cryptography → requires gcc + openssl-devel).
-    - RUN microdnf install -y gcc python3.12-devel openssl-devel && microdnf clean all
+    # Install C headers needed by Python packages with native extensions:
+    # - gcc, python3.12-devel: general native-extension compilation
+    # - openssl-devel: azure-mgmt-network pulls cryptography
+    # - systemd-devel: some collection Python requirements pull systemd-python,
+    #   whose setup.py locates libsystemd via pkg-config (fails with
+    #   "Package 'libsystemd' ... not found" otherwise)
+    # - dbus-devel, glib2-devel, krb5-devel: cover related pkg-config lookups
+    #   from the same class of transitive native-extension dependencies
+    - RUN microdnf install -y gcc python3.12-devel openssl-devel systemd-devel dbus-devel glib2-devel krb5-devel && microdnf clean all
 
   prepend_final:
     # Mirror PYCMD so runtime module execution uses the same Python as the build.
