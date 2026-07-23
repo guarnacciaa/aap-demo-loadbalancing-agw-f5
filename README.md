@@ -21,7 +21,7 @@ Automates **verification, drain, disconnection, and reconnection** of VMs behind
 
 Phases 0 and 2 only exist when `demo_manage_infrastructure: true` (default); see [Deployment modes](#deployment-modes) for the customer/PoC mode that runs phase 1 only, against pre-existing infrastructure. Both scenario workflows now start with a read-only connectivity check and pool preview (see [Job templates](#job-templates)) before making any change.
 
-Launch either scenario workflow from AAP **Templates** with survey values for `lb_backend_type`, hostname, and IP.
+Launch either scenario workflow from AAP **Templates** with survey values for `lb_backend_type` and the target VM hostname; the target IP is resolved automatically (see [Automatic private IP discovery](#automatic-private-ip-discovery)) unless you supply an explicit override.
 
 ## Application Gateway backend discovery
 
@@ -32,6 +32,10 @@ This environment associates AGW backend pool membership with the target VM's **N
 `agw_name` / `agw_backend_pool_name` still exist as variables, but only `Setup - Azure infrastructure` reads them (lab/dev only), to perform the *initial* NIC attachment when the demo bootstraps its own environment — see [Deployment modes](#deployment-modes) and [docs/setup.md](docs/setup.md#application-gateway-backend-discovery).
 
 **Limitation:** only the VM's first network interface and its primary IP configuration are inspected — multi-NIC VMs, or a pool attached to a secondary NIC/IP configuration, are out of scope for this demo.
+
+## Automatic private IP discovery
+
+`agw_vm_private_ip` and `f5_vm_private_ip` are **optional overrides**, not required variables. Every consumer (the `LB - *` templates, `Setup`/`Teardown - F5 pool member`, and `Setup - Azure infrastructure`) resolves the VM's current primary private IP automatically from its hostname via the same Azure VM/NIC lookup pattern used for [Application Gateway backend discovery](#application-gateway-backend-discovery) above — see [docs/setup.md](docs/setup.md#automatic-private-ip-discovery). Set either variable explicitly only to override auto-discovery (for example a multi-NIC VM).
 
 ## Azure authentication mode
 
@@ -53,7 +57,7 @@ This environment associates AGW backend pool membership with the target VM's **N
 | Lab / dev | `true` (default) | Full lifecycle: `Setup - Azure infrastructure`, `Setup - F5 pool member`, `Teardown - Azure infrastructure`, `Teardown - F5 pool member`, `WF - Demo setup`, `WF - Demo teardown`, plus all scenario and dry-run objects | You are running the demo yourself and want AAP to create and destroy the Azure VMs/AGW and register the F5 pool member |
 | Customer / PoC | `false` | Only the scenario job templates (`LB - Connectivity check (dry run)`, `LB - Pool status preview (dry run)`, `LB - Verify VM in pool`, `LB - Verify connection status`, `LB - Drain and disconnect VM`, `LB - Reconnect VM to pool`, `LB - Collect results`) and their two workflows | The customer already provides the Azure VM/AGW and F5 pool member; no provisioning or teardown object is created in AAP, removing any risk of accidentally launching a job that creates duplicate Azure resources or removes the customer's existing F5 pool member |
 
-In customer mode, set `azure_resource_group` / `agw_vm_hostname` / `agw_vm_private_ip` / `f5_server` / `f5_pool_name` / `f5_vm_private_ip` to the customer's existing resources. `agw_name` / `agw_backend_pool_name` do **not** need to be set in customer mode — the Application Gateway is discovered dynamically from the VM's NIC (see [Application Gateway backend discovery](#application-gateway-backend-discovery)); those two variables only matter to `Setup - Azure infrastructure`, which is not even deployed in customer mode.
+In customer mode, set `azure_resource_group` / `agw_vm_hostname` / `f5_server` / `f5_pool_name` / `f5_vm_hostname` to the customer's existing resources. `agw_name` / `agw_backend_pool_name` do **not** need to be set in customer mode — the Application Gateway is discovered dynamically from the VM's NIC (see [Application Gateway backend discovery](#application-gateway-backend-discovery)); those two variables only matter to `Setup - Azure infrastructure`, which is not even deployed in customer mode. `agw_vm_private_ip` / `f5_vm_private_ip` do not need to be set in either mode — see [Automatic private IP discovery](#automatic-private-ip-discovery).
 
 `group_vars/all/demo_variables.yml.example` **and** `vault.yml.example` mark every variable/secret with `[ALWAYS REQUIRED]` or `[LAB/DEV ONLY]` banners so you can see at a glance what customer/PoC mode needs. `playbooks/aap_config.yml` and `playbooks/verify.yml` enforce this: the `[LAB/DEV ONLY]` variables are only validated when `demo_manage_infrastructure: true`, so leaving them at their example defaults never blocks a customer/PoC deployment.
 

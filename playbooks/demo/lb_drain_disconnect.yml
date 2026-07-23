@@ -16,7 +16,8 @@
   vars:
     lb_backend_type: "{{ lb_backend_type | mandatory }}"
     target_vm_hostname: "{{ target_vm_hostname | mandatory }}"
-    target_vm_ip: "{{ target_vm_ip | mandatory }}"
+    # target_vm_ip is an optional override: see tasks/resolve_vm_private_ip.yml
+    # and the AGW/F5 branches below.
     drain_wait_timeout: "{{ drain_wait_timeout | default(300) | int }}"
     drain_poll_interval: "{{ drain_poll_interval | default(15) | int }}"
 
@@ -26,6 +27,13 @@
       block:
         - name: Resolve the target VM's NIC and its live Application Gateway backend pool association
           ansible.builtin.include_tasks: tasks/agw_discover_from_nic.yml
+          tags:
+            - agw
+            - drain
+
+        - name: Use the target VM's discovered NIC IP unless an explicit override was supplied
+          ansible.builtin.set_fact:
+            target_vm_ip: "{{ target_vm_ip | default(agw_discovered_private_ip) }}"
           tags:
             - agw
             - drain
@@ -49,6 +57,20 @@
     - name: Drain and disable F5 pool member
       when: lb_backend_type == 'f5'
       block:
+        - name: Resolve the target VM's private IP from Azure unless an explicit override was supplied
+          ansible.builtin.include_tasks: tasks/resolve_vm_private_ip.yml
+          when: target_vm_ip is not defined
+          tags:
+            - f5
+            - drain
+
+        - name: Use the auto-resolved private IP unless an explicit override was supplied
+          ansible.builtin.set_fact:
+            target_vm_ip: "{{ target_vm_ip | default(resolved_vm_private_ip) }}"
+          tags:
+            - f5
+            - drain
+
         - name: Force F5 pool member offline to drain existing connections
           f5networks.f5_modules.bigip_pool_member:
             pool: "{{ f5_pool_name }}"

@@ -1,7 +1,8 @@
 # Description: Read-only preview of the AGW backend pool or F5 pool member
 # state for the target VM selected in the workflow survey (lb_backend_type,
-# target_vm_hostname, target_vm_ip — same variables LB - Verify/Drain/Reconnect
-# consume). Reports whether the target is currently present (relevant before
+# target_vm_hostname — same variables LB - Verify/Drain/Reconnect consume;
+# target_vm_ip is an optional override, auto-resolved from target_vm_hostname
+# otherwise). Reports whether the target is currently present (relevant before
 # drain/disconnect) or absent (relevant before reconnect), without asserting
 # or making any change. Never creates, modifies, or deletes any Azure or F5
 # object — safe to run repeatedly, including against a customer's
@@ -29,7 +30,10 @@
   vars:
     lb_backend_type: "{{ lb_backend_type | mandatory }}"
     target_vm_hostname: "{{ target_vm_hostname | mandatory }}"
-    target_vm_ip: "{{ target_vm_ip | mandatory }}"
+    # target_vm_ip is an optional override: when omitted, it is resolved
+    # automatically from target_vm_hostname (AGW: reused from the NIC lookup
+    # below at no extra cost; F5: tasks/resolve_vm_private_ip.yml). See
+    # docs/setup.md#application-gateway-backend-discovery.
 
   tasks:
     - name: Preview Application Gateway backend pool membership
@@ -37,6 +41,13 @@
       block:
         - name: Resolve the target VM's NIC and any live or saved Application Gateway backend pool association
           ansible.builtin.include_tasks: tasks/agw_discover_from_nic.yml
+          tags:
+            - agw
+            - preview
+
+        - name: Use the target VM's discovered NIC IP unless an explicit override was supplied
+          ansible.builtin.set_fact:
+            target_vm_ip: "{{ target_vm_ip | default(agw_discovered_private_ip) }}"
           tags:
             - agw
             - preview
@@ -67,6 +78,20 @@
     - name: Preview F5 pool member state
       when: lb_backend_type == 'f5'
       block:
+        - name: Resolve the target VM's private IP from Azure unless an explicit override was supplied
+          ansible.builtin.include_tasks: tasks/resolve_vm_private_ip.yml
+          when: target_vm_ip is not defined
+          tags:
+            - f5
+            - preview
+
+        - name: Use the auto-resolved private IP unless an explicit override was supplied
+          ansible.builtin.set_fact:
+            target_vm_ip: "{{ target_vm_ip | default(resolved_vm_private_ip) }}"
+          tags:
+            - f5
+            - preview
+
         # status_code accepts both 200 (member exists) and 404 (member
         # absent) so this stays a report, not a failure, in either case.
         - name: Query F5 pool member via iControl REST API

@@ -152,14 +152,23 @@ azure_resource_group: CHANGE_ME
 # docs/setup.md#application-gateway-backend-discovery. agw_name and
 # agw_backend_pool_name below are only needed for the initial NIC
 # attachment performed by Setup - Azure infrastructure (lab/dev only).
+#
+# agw_vm_private_ip / f5_vm_private_ip are NOT required: every consumer
+# (LB - * scenario templates, Setup/Teardown - F5 pool member) resolves the
+# VM's current private IP automatically from its hostname via
+# tasks/resolve_vm_private_ip.yml (or the equivalent NIC lookup already
+# performed for AGW pool discovery). Uncomment and set one only as an
+# explicit override — for example if a VM has multiple NICs and the wrong
+# one is auto-detected, or the pool member address must differ from the
+# VM's primary private IP for some other reason.
 
 # VM connected to AGW
 agw_vm_hostname: azure-vm-agw01
-agw_vm_private_ip: CHANGE_ME
+# agw_vm_private_ip: CHANGE_ME
 
 # VM connected to F5
 f5_vm_hostname: azure-vm-f501
-f5_vm_private_ip: CHANGE_ME
+# f5_vm_private_ip: CHANGE_ME
 
 # ============================================================================
 # Azure — VM and network provisioning [LAB/DEV ONLY]

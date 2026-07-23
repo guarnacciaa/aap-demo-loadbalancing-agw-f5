@@ -27,7 +27,9 @@
     # dynamically from agw_vm_hostname's NIC at runtime (see
     # playbooks/demo/tasks/agw_discover_from_nic.yml), they are only
     # consumed by Setup - Azure infrastructure (checked further below,
-    # lab/dev only).
+    # lab/dev only). agw_vm_private_ip/f5_vm_private_ip are also
+    # deliberately NOT checked: both are optional overrides, resolved
+    # automatically from the corresponding *_vm_hostname otherwise.
     - name: Confirm core load balancer identity variables (required in every mode)
       ansible.builtin.assert:
         that:
@@ -35,18 +37,14 @@
           - azure_resource_group != "CHANGE_ME"
           - agw_vm_hostname is defined
           - agw_vm_hostname != "CHANGE_ME"
-          - agw_vm_private_ip is defined
-          - agw_vm_private_ip != "CHANGE_ME"
           - f5_server is defined
           - f5_server != "CHANGE_ME"
           - f5_pool_name is defined
           - f5_pool_name != "CHANGE_ME"
-          - f5_vm_private_ip is defined
-          - f5_vm_private_ip != "CHANGE_ME"
         fail_msg: >-
           Core load balancer identity variables are incomplete. Check
           demo_variables.yml (azure_resource_group, agw_vm_hostname,
-          agw_vm_private_ip, f5_server, f5_pool_name, f5_vm_private_ip).
+          f5_server, f5_pool_name).
       tags:
         - verify
 

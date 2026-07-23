@@ -16,9 +16,11 @@ two nodes of both workflows (see [docs/procedures.md](procedures.md)).
 ```bash
 ansible-playbook playbooks/demo/lb_precheck_connectivity.yml \
   -e target_vm_hostname=azure-vm-agw01 -e azure_resource_group=my-rg --vault-id @prompt
+# target_vm_ip is not needed: resolved automatically from target_vm_hostname's
+# NIC (see docs/setup.md#automatic-private-ip-discovery).
 ansible-playbook playbooks/demo/lb_pool_preview.yml \
   -e lb_backend_type=agw -e target_vm_hostname=azure-vm-agw01 \
-  -e target_vm_ip=10.0.1.10 -e azure_resource_group=my-rg --vault-id @prompt
+  -e azure_resource_group=my-rg --vault-id @prompt
 ```
 
 ## Functional checks

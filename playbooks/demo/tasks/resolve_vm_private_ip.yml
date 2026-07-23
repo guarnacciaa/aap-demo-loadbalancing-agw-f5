@@ -1,0 +1,65 @@
+# Description: Resolve the primary private IP address of an Azure VM from its
+# hostname, so callers never have to pass a static IP variable that can drift
+# from the VM's actual current network configuration.
+#
+# This is the F5-side counterpart to the AGW-side lookup already performed by
+# tasks/agw_discover_from_nic.yml (which exposes agw_discovered_private_ip as
+# a side effect of its own NIC discovery — reuse that fact directly on the AGW
+# path instead of including this file a second time, to avoid a redundant
+# pair of Azure API calls). Use this file whenever a private IP is needed and
+# no AGW/NIC discovery has already run in the same task list (for example, the
+# F5 backend branch in the demo/lb_*.yml playbooks, and setup/02_f5_setup.yml /
+# setup/02_f5_teardown.yml).
+#
+# This is an include_tasks file, not a role — see the note in
+# agw_discover_from_nic.yml on why roles/ is not a reliable search path for
+# AAP-launched playbooks/demo/*.yml and playbooks/setup/*.yml.
+#
+# Limitation: only the VM's FIRST network interface and its PRIMARY IP
+# configuration are inspected, matching agw_discover_from_nic.yml.
+#
+# Requires: azure_resource_group, target_vm_hostname, azure_auth_mode.
+# Sets: resolved_vm_private_ip.
+---
+- name: Look up the target VM to resolve its network interface and resource group
+  azure.azcollection.azure_rm_virtualmachine_info:
+    resource_group: "{{ azure_resource_group }}"
+    name: "{{ target_vm_hostname }}"
+    auth_source: "{{ 'msi' if (azure_auth_mode | default('service_principal') == 'msi') else omit }}"
+  register: resolve_vm_ip_lookup
+  tags:
+    - azure
+    - resolve
+
+- name: Fail fast when the target VM cannot be found or has no network interface
+  ansible.builtin.assert:
+    that:
+      - resolve_vm_ip_lookup.vms | length == 1
+      - resolve_vm_ip_lookup.vms[0].network_interface_names | length > 0
+    fail_msg: >-
+      VM {{ target_vm_hostname }} not found in resource group
+      {{ azure_resource_group }}, or it has no network interfaces attached.
+      Check target_vm_hostname/azure_resource_group and the configured
+      credentials (or the Managed Identity RBAC assignment when
+      azure_auth_mode: msi), or pass target_vm_ip explicitly to override
+      auto-discovery.
+  tags:
+    - azure
+    - resolve
+
+- name: Retrieve current configuration of the VM's primary network interface
+  azure.azcollection.azure_rm_networkinterface_info:
+    resource_group: "{{ resolve_vm_ip_lookup.vms[0].resource_group }}"
+    name: "{{ resolve_vm_ip_lookup.vms[0].network_interface_names[0] }}"
+    auth_source: "{{ 'msi' if (azure_auth_mode | default('service_principal') == 'msi') else omit }}"
+  register: resolve_vm_nic_lookup
+  tags:
+    - azure
+    - resolve
+
+- name: Expose the VM's primary private IP address
+  ansible.builtin.set_fact:
+    resolved_vm_private_ip: "{{ resolve_vm_nic_lookup.networkinterfaces[0].ip_configurations[0].private_ip_address }}"
+  tags:
+    - azure
+    - resolve

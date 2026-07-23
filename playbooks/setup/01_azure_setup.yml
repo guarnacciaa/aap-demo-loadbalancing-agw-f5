@@ -2,7 +2,10 @@
 # Idempotent; safe to re-run.
 #
 # Dual-mode operation controlled by azure_create_network_resources (default: false):
-#   false — bring-your-own: validates that required IDs are supplied in demo_variables.yml.
+#   false — bring-your-own: validates that agw_vm_hostname/f5_vm_hostname's resource
+#           group and the target AGW pool identity are supplied in demo_variables.yml.
+#           Private IPs are never required as input — they are always resolved from
+#           each VM's NIC (see the VM/NIC LOOKUPS block below).
 #   true  — create-from-scratch: creates VNet, subnet, NSG, VMs, and configures the
 #           AGW backend pool from scratch.
 #
@@ -32,24 +35,23 @@
     # --- Validate bring-your-own mode ---
     # When azure_create_network_resources is false, all resource identifiers must
     # already be set.  Fail fast rather than letting tasks silently use wrong defaults.
+    # agw_vm_private_ip/f5_vm_private_ip are NOT checked here: both are always
+    # resolved dynamically from the VM's NIC in the RESOLVE FACTS block below
+    # (bring-your-own only needs the VM to already exist under azure_resource_group).
     - name: Validate bring-your-own variables when not creating resources
       ansible.builtin.assert:
         that:
           - azure_resource_group is defined
           - azure_resource_group != "CHANGE_ME"
-          - agw_vm_private_ip is defined
-          - agw_vm_private_ip != "CHANGE_ME"
           - agw_name is defined
           - agw_name != "CHANGE_ME"
           - agw_backend_pool_name is defined
           - agw_backend_pool_name != "CHANGE_ME"
-          - f5_vm_private_ip is defined
-          - f5_vm_private_ip != "CHANGE_ME"
         fail_msg: >-
           azure_create_network_resources is false but one or more bring-your-own
           variables are still set to CHANGE_ME. Fill in azure_resource_group,
-          agw_vm_private_ip, agw_name, agw_backend_pool_name, and f5_vm_private_ip
-          in demo_variables.yml, or set azure_create_network_resources: true.
+          agw_name, and agw_backend_pool_name in demo_variables.yml, or set
+          azure_create_network_resources: true.
       when: not (azure_create_network_resources | default(false) | bool)
       tags:
         - always
@@ -215,41 +217,13 @@
         - vms
 
     # =========================================================================
-    # RESOLVE FACTS — unify both modes into a single set of variables
+    # VM/NIC LOOKUPS — always performed in both modes
     # =========================================================================
-    # After this block, agw_vm_ip_resolved and f5_vm_ip_resolved are used by
-    # all downstream tasks regardless of which mode is active.
-    - name: Resolve VM IPs from active provisioning mode
-      ansible.builtin.set_fact:
-        agw_vm_ip_resolved: >-
-          {{ agw_vm_result.ansible_facts.azure_vm.properties.networkProfile
-             .networkInterfaces[0].properties.ipConfigurations[0].properties.privateIPAddress
-             if (azure_create_network_resources | default(false) | bool)
-             else agw_vm_private_ip }}
-        f5_vm_ip_resolved: >-
-          {{ f5_vm_result.ansible_facts.azure_vm.properties.networkProfile
-             .networkInterfaces[0].properties.ipConfigurations[0].properties.privateIPAddress
-             if (azure_create_network_resources | default(false) | bool)
-             else f5_vm_private_ip }}
-      tags:
-        - always
-
-    # =========================================================================
-    # AGW BACKEND POOL MEMBERSHIP (NIC-based association)
-    # =========================================================================
-    # Attach the AGW VM's NIC to the Application Gateway backend pool.
-    # Runs in both modes — the pool membership is always (re)asserted
-    # regardless of whether the VM was just created or already existed.
-    #
-    # Decision: the target environment associates AGW backend pool
-    # membership with the VM's NIC ipConfiguration, not with a static
-    # backend IP address — see playbooks/demo/tasks/agw_discover_from_nic.yml
-    # for the matching runtime discovery used by the LB - * scenario
-    # templates. azure_rm_appgateway only exposes backend_addresses
-    # (IP-based) for write, so NIC-based membership must be managed on the
-    # NIC resource via azure_rm_networkinterface instead. This playbook
-    # never creates or modifies the Application Gateway resource itself —
-    # it is always assumed to pre-exist (see docs/setup.md).
+    # The create-from-scratch VMs above are created (or already present) by
+    # the time these run, so a single lookup-by-hostname works identically
+    # in both modes: this is also how agw_vm_ip_resolved/f5_vm_ip_resolved
+    # are derived below, replacing the need for agw_vm_private_ip/
+    # f5_vm_private_ip to be supplied as bring-your-own variables at all.
     - name: Look up the AGW backend VM to resolve its network interface
       azure.azcollection.azure_rm_virtualmachine_info:
         resource_group: "{{ azure_resource_group }}"
@@ -270,6 +244,58 @@
         - azure
         - agw
 
+    # This playbook does not manage F5 pool membership itself (see
+    # setup/02_f5_setup.yml) — the lookup here exists solely to resolve
+    # f5_vm_ip_resolved below.
+    - name: Look up the F5 pool member VM to resolve its network interface
+      azure.azcollection.azure_rm_virtualmachine_info:
+        resource_group: "{{ azure_resource_group }}"
+        name: "{{ f5_vm_hostname }}"
+        auth_source: "{{ 'msi' if (azure_auth_mode | default('service_principal') == 'msi') else omit }}"
+      register: f5_vm_lookup
+      tags:
+        - azure
+        - f5
+
+    - name: Retrieve current configuration of the F5 pool member VM NIC
+      azure.azcollection.azure_rm_networkinterface_info:
+        resource_group: "{{ f5_vm_lookup.vms[0].resource_group }}"
+        name: "{{ f5_vm_lookup.vms[0].network_interface_names[0] }}"
+        auth_source: "{{ 'msi' if (azure_auth_mode | default('service_principal') == 'msi') else omit }}"
+      register: f5_vm_nic_current
+      tags:
+        - azure
+        - f5
+
+    # =========================================================================
+    # RESOLVE FACTS — unify both modes into a single set of variables
+    # =========================================================================
+    # Always sourced from the NIC lookups above, in both modes — see the note
+    # there. After this block, agw_vm_ip_resolved and f5_vm_ip_resolved are
+    # used by all downstream tasks and published via set_stats below.
+    - name: Resolve VM private IPs from their network interfaces
+      ansible.builtin.set_fact:
+        agw_vm_ip_resolved: "{{ agw_vm_nic_current.networkinterfaces[0].ip_configurations[0].private_ip_address }}"
+        f5_vm_ip_resolved: "{{ f5_vm_nic_current.networkinterfaces[0].ip_configurations[0].private_ip_address }}"
+      tags:
+        - always
+
+    # =========================================================================
+    # AGW BACKEND POOL MEMBERSHIP (NIC-based association)
+    # =========================================================================
+    # Attach the AGW VM's NIC to the Application Gateway backend pool.
+    # Runs in both modes — the pool membership is always (re)asserted
+    # regardless of whether the VM was just created or already existed.
+    #
+    # Decision: the target environment associates AGW backend pool
+    # membership with the VM's NIC ipConfiguration, not with a static
+    # backend IP address — see playbooks/demo/tasks/agw_discover_from_nic.yml
+    # for the matching runtime discovery used by the LB - * scenario
+    # templates. azure_rm_appgateway only exposes backend_addresses
+    # (IP-based) for write, so NIC-based membership must be managed on the
+    # NIC resource via azure_rm_networkinterface instead. This playbook
+    # never creates or modifies the Application Gateway resource itself —
+    # it is always assumed to pre-exist (see docs/setup.md).
     - name: Attach the AGW backend VM NIC to the Application Gateway backend pool
       # Re-sends the NIC's existing primary IP configuration values (subnet,
       # private IP, allocation method, primary flag) alongside the new
@@ -296,9 +322,11 @@
         - agw
 
   post_tasks:
-    # Publish resolved IPs and resource names for downstream workflow nodes.
-    # Operators should copy these values into demo_variables.yml for future runs
-    # in bring-your-own mode.
+    # Publish resolved IPs and resource names for downstream workflow nodes
+    # (for example setup/02_f5_setup.yml, via AAP's workflow artifact
+    # chaining). Informational only — no playbook requires these to be
+    # copied into demo_variables.yml, since every consumer re-resolves them
+    # from the VM's NIC when not explicitly overridden.
     - name: Publish resolved infrastructure details
       ansible.builtin.set_stats:
         data:

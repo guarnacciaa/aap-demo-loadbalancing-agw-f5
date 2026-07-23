@@ -27,9 +27,9 @@ controller_workflows:
           type: text
           required: true
         - variable: target_vm_ip
-          question_name: Target VM private IP
+          question_name: Target VM private IP (optional — auto-resolved from the hostname above when left blank)
           type: text
-          required: true
+          required: false
     labels:
       - "{{ demo_label_name }}"
     workflow_nodes:

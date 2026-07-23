@@ -59,15 +59,14 @@
 
     # Always required regardless of deployment mode: the always-deployed
     # LB - * scenario templates and both dry-run templates consume these
-    # directly via extra_vars/group_vars, but until now they were only
-    # validated inside 01_azure_setup.yml's own bring-your-own check — which
-    # never runs at all in customer/PoC mode (demo_manage_infrastructure:
-    # false), since Setup - Azure infrastructure is not even deployed then.
-    # agw_name/agw_backend_pool_name are deliberately NOT validated here:
-    # the Application Gateway is discovered dynamically from
-    # agw_vm_hostname's NIC at runtime by every LB - * scenario template
-    # (see playbooks/demo/tasks/agw_discover_from_nic.yml); those two
-    # variables are lab/dev-only and validated further below.
+    # directly via extra_vars/group_vars. agw_name/agw_backend_pool_name are
+    # deliberately NOT validated here: the Application Gateway is discovered
+    # dynamically from agw_vm_hostname's NIC at runtime by every LB - *
+    # scenario template (see playbooks/demo/tasks/agw_discover_from_nic.yml);
+    # those two variables are lab/dev-only and validated further below.
+    # agw_vm_private_ip/f5_vm_private_ip are deliberately NOT validated
+    # either: both are optional overrides, resolved automatically from the
+    # corresponding *_vm_hostname at runtime (see tasks/resolve_vm_private_ip.yml).
     - name: Validate core load balancer identity variables
       ansible.builtin.assert:
         that:
@@ -75,22 +74,14 @@
           - azure_resource_group != "CHANGE_ME"
           - agw_vm_hostname is defined
           - agw_vm_hostname != "CHANGE_ME"
-          - agw_vm_private_ip is defined
-          - agw_vm_private_ip != "CHANGE_ME"
           - f5_server is defined
           - f5_server != "CHANGE_ME"
           - f5_pool_name is defined
           - f5_pool_name != "CHANGE_ME"
-          - f5_vm_private_ip is defined
-          - f5_vm_private_ip != "CHANGE_ME"
         fail_msg: >-
-          Set azure_resource_group, agw_vm_hostname, agw_vm_private_ip,
-          f5_server, f5_pool_name, and f5_vm_private_ip in
-          demo_variables.yml — every LB - * scenario template requires them
-          regardless of demo_manage_infrastructure. If
-          demo_manage_infrastructure: true and azure_create_network_resources:
-          true, run Setup - Azure infrastructure first and copy the values it
-          publishes via set_stats into demo_variables.yml.
+          Set azure_resource_group, agw_vm_hostname, f5_server, and
+          f5_pool_name in demo_variables.yml — every LB - * scenario
+          template requires them regardless of demo_manage_infrastructure.
       tags:
         - always
 

@@ -31,7 +31,7 @@
 # Requires (already mandatory in every including playbook): azure_resource_group
 # (the target VM's resource group), target_vm_hostname, azure_auth_mode.
 # Sets: agw_state_tag_key, agw_discovered_vm_info, agw_discovered_nic_info,
-# agw_discovered_nic_name, agw_discovered_pool_ids_live,
+# agw_discovered_nic_name, agw_discovered_private_ip, agw_discovered_pool_ids_live,
 # agw_discovered_resource_group, agw_discovered_name, agw_discovered_pool_name,
 # agw_discovered_pool_id_saved, agw_discovered_saved_resource_group,
 # agw_discovered_saved_name, agw_discovered_saved_pool_name.
@@ -82,6 +82,9 @@
 - name: Resolve the live Application Gateway backend pool association from the NIC
   ansible.builtin.set_fact:
     agw_discovered_nic_name: "{{ agw_discovered_nic_info.networkinterfaces[0].name }}"
+    # Exposed so callers (demo/lb_*.yml) can use it as the target VM's private
+    # IP without a second Azure lookup — this NIC info call already fetched it.
+    agw_discovered_private_ip: "{{ agw_discovered_nic_info.networkinterfaces[0].ip_configurations[0].private_ip_address }}"
     agw_discovered_pool_ids_live: >-
       {{
         agw_discovered_nic_info.networkinterfaces[0].ip_configurations[0].application_gateway_backend_address_pools

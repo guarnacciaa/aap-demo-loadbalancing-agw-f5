@@ -1,6 +1,7 @@
 # Description: Verify target VM is present in AGW backend pool (via its
 # NIC's ipConfiguration) or F5 pool (by IP/port).
-# Set lb_backend_type to agw or f5 and pass target_vm_hostname / target_vm_ip.
+# Set lb_backend_type to agw or f5 and pass target_vm_hostname. target_vm_ip
+# is an optional override — auto-resolved from target_vm_hostname otherwise.
 ---
 - name: Verify VM presence in load balancer backend
   hosts: localhost
@@ -12,8 +13,9 @@
 
   vars:
     lb_backend_type: "{{ lb_backend_type | mandatory }}"
-    target_vm_ip: "{{ target_vm_ip | mandatory }}"
     target_vm_hostname: "{{ target_vm_hostname | mandatory }}"
+    # target_vm_ip is an optional override: see tasks/resolve_vm_private_ip.yml
+    # and the AGW/F5 blocks below.
 
   tasks:
     - name: Verify VM is attached to an Application Gateway backend pool via its NIC
@@ -21,6 +23,13 @@
       block:
         - name: Resolve the target VM's NIC and any live Application Gateway backend pool association
           ansible.builtin.include_tasks: tasks/agw_discover_from_nic.yml
+          tags:
+            - agw
+            - verify
+
+        - name: Use the target VM's discovered NIC IP unless an explicit override was supplied
+          ansible.builtin.set_fact:
+            target_vm_ip: "{{ target_vm_ip | default(agw_discovered_private_ip) }}"
           tags:
             - agw
             - verify
@@ -41,6 +50,20 @@
     - name: Verify VM is present as F5 pool member
       when: lb_backend_type == 'f5'
       block:
+        - name: Resolve the target VM's private IP from Azure unless an explicit override was supplied
+          ansible.builtin.include_tasks: tasks/resolve_vm_private_ip.yml
+          when: target_vm_ip is not defined
+          tags:
+            - f5
+            - verify
+
+        - name: Use the auto-resolved private IP unless an explicit override was supplied
+          ansible.builtin.set_fact:
+            target_vm_ip: "{{ target_vm_ip | default(resolved_vm_private_ip) }}"
+          tags:
+            - f5
+            - verify
+
         # REST GET avoids assuming member state (enabled/disabled) during presence checks.
         - name: Query F5 pool member via iControl REST API
           ansible.builtin.uri:

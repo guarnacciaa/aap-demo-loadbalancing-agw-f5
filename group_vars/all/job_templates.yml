@@ -42,8 +42,10 @@ controller_templates:
     ask_variables_on_launch: true
     extra_vars:
       lb_backend_type: agw
+      # target_vm_ip is not passed here: playbooks/demo/lb_pool_preview.yml
+      # resolves it automatically from target_vm_hostname's NIC (see
+      # tasks/agw_discover_from_nic.yml / tasks/resolve_vm_private_ip.yml).
       target_vm_hostname: "{{ agw_vm_hostname }}"
-      target_vm_ip: "{{ agw_vm_private_ip }}"
       azure_resource_group: "{{ azure_resource_group }}"
       # See the comment on LB - Connectivity check above: this playbook also
       # branches on azure_auth_mode and must receive it via extra_vars.
@@ -67,7 +69,6 @@ controller_templates:
     extra_vars:
       lb_backend_type: agw
       target_vm_hostname: "{{ agw_vm_hostname }}"
-      target_vm_ip: "{{ agw_vm_private_ip }}"
       azure_resource_group: "{{ azure_resource_group }}"
       # See the comment on LB - Connectivity check above: this playbook also
       # branches on azure_auth_mode and must receive it via extra_vars.
@@ -88,7 +89,6 @@ controller_templates:
     extra_vars:
       lb_backend_type: agw
       target_vm_hostname: "{{ agw_vm_hostname }}"
-      target_vm_ip: "{{ agw_vm_private_ip }}"
       azure_resource_group: "{{ azure_resource_group }}"
       azure_auth_mode: "{{ azure_auth_mode }}"
     credentials:
@@ -107,7 +107,6 @@ controller_templates:
     extra_vars:
       lb_backend_type: agw
       target_vm_hostname: "{{ agw_vm_hostname }}"
-      target_vm_ip: "{{ agw_vm_private_ip }}"
       azure_resource_group: "{{ azure_resource_group }}"
       drain_wait_timeout: "{{ drain_wait_timeout }}"
       azure_auth_mode: "{{ azure_auth_mode }}"
@@ -127,7 +126,6 @@ controller_templates:
     extra_vars:
       lb_backend_type: agw
       target_vm_hostname: "{{ agw_vm_hostname }}"
-      target_vm_ip: "{{ agw_vm_private_ip }}"
       azure_resource_group: "{{ azure_resource_group }}"
       azure_auth_mode: "{{ azure_auth_mode }}"
     credentials:

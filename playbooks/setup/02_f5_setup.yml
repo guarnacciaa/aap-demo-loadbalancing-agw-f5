@@ -3,11 +3,15 @@
 #
 # F5 BIG-IP is bring-your-own (BYO): this playbook assumes an existing
 # LTM pool identified by f5_pool_name and f5_partition in demo_variables.yml.
-# It adds f5_vm_private_ip as a pool member on f5_pool_member_port.
+# It adds the F5 VM's private IP as a pool member on f5_pool_member_port.
+# f5_vm_private_ip is an optional override; when not set it is resolved
+# automatically from f5_vm_hostname via tasks/resolve_vm_private_ip.yml
+# (the same Azure VM/NIC lookup used by the demo/lb_*.yml F5 branch).
 #
 # Prerequisites:
 #   - F5 BIG-IP reachable at f5_server with f5_username/f5_password credentials.
 #   - Pool f5_pool_name exists in partition f5_partition.
+#   - f5_vm_hostname exists in azure_resource_group (for IP auto-discovery).
 #
 # Corresponding teardown: 02_f5_teardown.yml
 ---
@@ -15,6 +19,7 @@
   hosts: localhost
   gather_facts: false
   collections:
+    - azure.azcollection
     - f5networks.f5_modules
     - ansible.builtin
 
@@ -30,11 +35,24 @@
           - f5_server != "CHANGE_ME"
           - f5_pool_name is defined
           - f5_pool_name != "CHANGE_ME"
-          - f5_vm_private_ip is defined
-          - f5_vm_private_ip != "CHANGE_ME"
         fail_msg: >-
-          f5_server, f5_pool_name, and f5_vm_private_ip must be set in
-          demo_variables.yml before registering the pool member.
+          f5_server and f5_pool_name must be set in demo_variables.yml
+          before registering the pool member.
+      tags:
+        - always
+
+    - name: Resolve the F5 VM's private IP from Azure unless an explicit override was supplied
+      ansible.builtin.include_tasks: ../demo/tasks/resolve_vm_private_ip.yml
+      vars:
+        target_vm_hostname: "{{ f5_vm_hostname }}"
+      when: f5_vm_private_ip is not defined
+      tags:
+        - always
+
+    - name: Use the auto-resolved private IP unless an explicit override was supplied
+      ansible.builtin.set_fact:
+        f5_vm_private_ip: "{{ f5_vm_private_ip | default(resolved_vm_private_ip) }}"
+      when: f5_vm_private_ip is not defined
       tags:
         - always
 

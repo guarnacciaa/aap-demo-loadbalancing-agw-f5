@@ -4,6 +4,10 @@
 # F5 BIG-IP is bring-your-own: this playbook only removes the pool member entry.
 # It does not modify or delete the pool itself.
 #
+# f5_vm_private_ip is an optional override; when not set it is resolved
+# automatically from f5_vm_hostname via tasks/resolve_vm_private_ip.yml (same
+# lookup as 02_f5_setup.yml, so this removes the exact same address it added).
+#
 # Run command:
 #   ansible-playbook playbooks/setup/02_f5_teardown.yml \
 #     -e demo_teardown_confirm=true --vault-id @prompt
@@ -12,6 +16,7 @@
   hosts: localhost
   gather_facts: false
   collections:
+    - azure.azcollection
     - f5networks.f5_modules
     - ansible.builtin
 
@@ -27,6 +32,21 @@
         fail_msg: >-
           Refusing to run teardown. Pass -e demo_teardown_confirm=true to
           remove the VM from the F5 pool.
+      tags:
+        - always
+
+    - name: Resolve the F5 VM's private IP from Azure unless an explicit override was supplied
+      ansible.builtin.include_tasks: ../demo/tasks/resolve_vm_private_ip.yml
+      vars:
+        target_vm_hostname: "{{ f5_vm_hostname }}"
+      when: f5_vm_private_ip is not defined
+      tags:
+        - always
+
+    - name: Use the auto-resolved private IP unless an explicit override was supplied
+      ansible.builtin.set_fact:
+        f5_vm_private_ip: "{{ f5_vm_private_ip | default(resolved_vm_private_ip) }}"
+      when: f5_vm_private_ip is not defined
       tags:
         - always
 
