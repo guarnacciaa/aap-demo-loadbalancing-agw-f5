@@ -61,4 +61,13 @@ Tracks testing progress for this demo. Update after each session. For procedural
 
 ## Open issues
 
-- None
+- Fixed but not yet re-tested: `LB - Verify VM in pool`, `LB - Verify connection status`,
+  `LB - Drain and disconnect VM`, and `LB - Reconnect VM to pool` were missing
+  `f5_pool_name`/`f5_partition`/`f5_pool_member_port` in their `extra_vars` (see
+  `group_vars/all/job_templates.yml`). Their playbooks (`playbooks/demo/lb_verify_presence.yml`,
+  `lb_verify_status.yml`, `lb_drain_disconnect.yml`, `lb_reconnect.yml`) do not load
+  `demo_variables.yml` via `vars_files`, so on the F5 backend path these variables depended
+  on unreliable `group_vars/all/` auto-loading and could reach `f5networks.f5_modules.bigip_pool_member`
+  (which requires `pool`) undefined. Extra_vars now pass them explicitly, matching the
+  `LB - Connectivity check` / `LB - Pool status preview` pattern. Needs an end-to-end F5 run
+  to confirm.
