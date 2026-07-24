@@ -6,16 +6,23 @@
 # demo_aws_inventory_name) — see MULTICLOUD-POC-UC4.md and
 # artifact--demo-variables.mdc for why these must never be shared.
 controller_inventories:
+  # kind: constructed must be set here, at creation time: Controller's
+  # inventory kind field is immutable once an inventory exists (PATCHing
+  # kind on an already-created regular inventory fails with a 405/"Cannot
+  # make a request with the PATCH method to this endpoint"). input_inventories
+  # is intentionally left unset here — the child inventories below do not
+  # exist yet when this role's async, non-sequential inventory-creation calls
+  # fire, so playbooks/aap_config.yml post_tasks reconciles input_inventories
+  # once every inventory in this file is guaranteed to exist.
   - name: "{{ demo_inventory_name }}"
     organization: "{{ demo_organization_name }}"
-    description: Parent inventory for multicloud load balancer operations
+    description: Constructed parent inventory aggregating the Azure/AWS child inventories below
+    kind: constructed
 
   - name: "{{ demo_azure_inventory_name }}"
     organization: "{{ demo_organization_name }}"
     description: Azure VMs and Application Gateway metadata
-    inventory: "{{ demo_inventory_name }}"
 
   - name: "{{ demo_aws_inventory_name }}"
     organization: "{{ demo_organization_name }}"
     description: Reserved for multicloud PoC consistency (unused in UC1)
-    inventory: "{{ demo_inventory_name }}"
