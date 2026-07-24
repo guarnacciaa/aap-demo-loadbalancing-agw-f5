@@ -33,6 +33,14 @@ This environment associates AGW backend pool membership with the target VM's **N
 
 **Limitation:** only the VM's first network interface and its primary IP configuration are inspected — multi-NIC VMs, or a pool attached to a secondary NIC/IP configuration, are out of scope for this demo.
 
+## F5 pool and partition discovery
+
+F5 BIG-IP ties pool membership to a **pool + partition + port** combination, and the same node IP can be a member of several pools at once. Every `LB - *` scenario and dry-run template discovers **every** such membership dynamically at runtime from the target VM's resolved private IP — see `playbooks/demo/tasks/f5_discover_pool_from_ip.yml` — instead of reading a fixed `f5_pool_name`/`f5_partition`/`f5_pool_member_port` variable. There is no pool/partition/port to configure for these templates; only `f5_server`/`f5_username` (plus `f5_password` from vault) are needed, in every deployment mode.
+
+`LB - Drain and disconnect VM` / `LB - Reconnect VM to pool` act on **every** discovered membership at once, not just one — draining or reconnecting a node changes its state consistently across every pool it belongs to. `f5_pool_name`/`f5_partition`/`f5_pool_member_port` still exist as variables, but only `Setup - F5 pool member` / `Teardown - F5 pool member` read them (lab/dev only), to create or remove the *very first* membership when the demo bootstraps its own environment — see [Deployment modes](#deployment-modes) and [docs/setup.md](docs/setup.md#f5-pool-and-partition-discovery). `f5_pool_member_port` is a further optional override within that lab/dev scope: both templates default it to `80` when left unset.
+
+**Limitation:** the member port is parsed from the `<address>:<port>` member name by splitting on the last `:` (IPv4 only). Discovery only sees partitions the F5 API credential can access.
+
 ## Automatic private IP discovery
 
 `agw_vm_private_ip` and `f5_vm_private_ip` are **optional overrides**, not required variables. Every consumer (the `LB - *` templates, `Setup`/`Teardown - F5 pool member`, and `Setup - Azure infrastructure`) resolves the VM's current primary private IP automatically from its hostname via the same Azure VM/NIC lookup pattern used for [Application Gateway backend discovery](#application-gateway-backend-discovery) above — see [docs/setup.md](docs/setup.md#automatic-private-ip-discovery). Set either variable explicitly only to override auto-discovery (for example a multi-NIC VM).
@@ -57,7 +65,7 @@ This environment associates AGW backend pool membership with the target VM's **N
 | Lab / dev | `true` (default) | Full lifecycle: `Setup - Azure infrastructure`, `Setup - F5 pool member`, `Teardown - Azure infrastructure`, `Teardown - F5 pool member`, `WF - Demo setup`, `WF - Demo teardown`, plus all scenario and dry-run objects | You are running the demo yourself and want AAP to create and destroy the Azure VMs/AGW and register the F5 pool member |
 | Customer / PoC | `false` | Only the scenario job templates (`LB - Connectivity check (dry run)`, `LB - Pool status preview (dry run)`, `LB - Verify VM in pool`, `LB - Verify connection status`, `LB - Drain and disconnect VM`, `LB - Reconnect VM to pool`, `LB - Collect results`) and their two workflows | The customer already provides the Azure VM/AGW and F5 pool member; no provisioning or teardown object is created in AAP, removing any risk of accidentally launching a job that creates duplicate Azure resources or removes the customer's existing F5 pool member |
 
-In customer mode, set `azure_resource_group` / `agw_vm_hostname` / `f5_server` / `f5_pool_name` / `f5_vm_hostname` to the customer's existing resources. `agw_name` / `agw_backend_pool_name` do **not** need to be set in customer mode — the Application Gateway is discovered dynamically from the VM's NIC (see [Application Gateway backend discovery](#application-gateway-backend-discovery)); those two variables only matter to `Setup - Azure infrastructure`, which is not even deployed in customer mode. `agw_vm_private_ip` / `f5_vm_private_ip` do not need to be set in either mode — see [Automatic private IP discovery](#automatic-private-ip-discovery).
+In customer mode, set `azure_resource_group` / `agw_vm_hostname` / `f5_server` / `f5_vm_hostname` to the customer's existing resources. `agw_name` / `agw_backend_pool_name` / `f5_pool_name` / `f5_partition` do **not** need to be set in customer mode — the Application Gateway is discovered dynamically from the VM's NIC, and the F5 pool/partition/port dynamically from the target IP (see [Application Gateway backend discovery](#application-gateway-backend-discovery) and [F5 pool and partition discovery](#f5-pool-and-partition-discovery)); those variables only matter to `Setup - Azure infrastructure` / `Setup - F5 pool member`, which are not even deployed in customer mode. `agw_vm_private_ip` / `f5_vm_private_ip` / `f5_pool_member_port` do not need to be set in either mode — see [Automatic private IP discovery](#automatic-private-ip-discovery) (the first two) and [F5 pool and partition discovery](#f5-pool-and-partition-discovery) (`f5_pool_member_port` defaults to `80`).
 
 `group_vars/all/demo_variables.yml.example` **and** `vault.yml.example` mark every variable/secret with `[ALWAYS REQUIRED]` or `[LAB/DEV ONLY]` banners so you can see at a glance what customer/PoC mode needs. `playbooks/aap_config.yml` and `playbooks/verify.yml` enforce this: the `[LAB/DEV ONLY]` variables are only validated when `demo_manage_infrastructure: true`, so leaving them at their example defaults never blocks a customer/PoC deployment.
 
@@ -138,8 +146,8 @@ Read-only checks, useful in both deployment modes. Wired as the first two nodes 
 
 | Template | Playbook | Checks |
 |---|---|---|
-| LB - Connectivity check (dry run) | `demo/lb_precheck_connectivity.yml` | Confirms Azure (via the target VM/NIC) and the F5 BIG-IP API are both reachable with the configured credentials — never mutates anything |
-| LB - Pool status preview (dry run) | `demo/lb_pool_preview.yml` | Reports whether the target VM is currently present in the AGW pool (discovered from its NIC) or as an F5 member, i.e. what drain/disconnect or reconnect would actually change — never mutates anything |
+| LB - Connectivity check (dry run) | `demo/lb_precheck_connectivity.yml` | Confirms Azure (via the target VM/NIC) and the F5 BIG-IP API (generic pool-collection reachability, no fixed pool) are both reachable with the configured credentials — never mutates anything |
+| LB - Pool status preview (dry run) | `demo/lb_pool_preview.yml` | Reports whether the target VM is currently present in the AGW pool (discovered from its NIC) or in one or more F5 pools (discovered from its IP — see [F5 pool and partition discovery](#f5-pool-and-partition-discovery)), i.e. what drain/disconnect or reconnect would actually change — never mutates anything |
 
 ## Collections
 

@@ -13,6 +13,13 @@
 # (for example right after a disconnect workflow run), not a connectivity
 # problem. It only fails when the VM/NIC cannot be found, or when a live
 # association points at an Application Gateway that is not reachable.
+#
+# The F5 side proves API reachability and authentication generically (list
+# the pool collection) instead of checking one fixed pool: since
+# f5_pool_name/f5_partition are no longer required variables (every LB - *
+# scenario template discovers them from the target IP at runtime — see
+# tasks/f5_discover_pool_from_ip.yml), there is no longer a single
+# pre-configured pool to check independently of a VM.
 ---
 - name: Check Azure Application Gateway and F5 BIG-IP credentials and connectivity
   hosts: localhost
@@ -85,11 +92,12 @@
         - azure
         - precheck
 
-    # A lightweight GET on the pool object itself proves both the F5 API is
-    # reachable and the configured pool exists, without touching any member.
-    - name: Query F5 BIG-IP pool object to confirm API reachability
+    # A lightweight GET on the pool collection proves both authentication
+    # and API reachability without assuming any specific pool exists — see
+    # the file header note on why this no longer checks one fixed pool.
+    - name: Query F5 BIG-IP pool collection to confirm API reachability and authentication
       ansible.builtin.uri:
-        url: "https://{{ f5_server }}/mgmt/tm/ltm/pool/~{{ f5_partition }}~{{ f5_pool_name }}"
+        url: "https://{{ f5_server }}/mgmt/tm/ltm/pool/"
         method: GET
         user: "{{ f5_username }}"
         password: "{{ f5_password }}"
@@ -103,6 +111,9 @@
 
     - name: Report F5 connectivity check result
       ansible.builtin.debug:
-        msg: "F5: reached pool {{ f5_pool_name }} (partition {{ f5_partition }}) on {{ f5_server }}."
+        msg: >-
+          F5: authenticated and reached the LTM pool collection on
+          {{ f5_server }}
+          ({{ f5_connectivity_check.json['items'] | default([]) | length }} pool(s) visible to this credential).
       tags:
         - precheck

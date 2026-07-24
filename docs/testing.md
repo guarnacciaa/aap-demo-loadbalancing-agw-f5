@@ -42,12 +42,12 @@ Tracks testing progress for this demo. Update after each session. For procedural
 
 | Component | Status | Last tested | Notes |
 |---|---|---|---|
-| LB - Connectivity check (dry run) | Not tested | — | Read-only; checks Azure AGW and F5 API reachability |
-| LB - Pool status preview (dry run) | Not tested | — | Read-only; previews AGW/F5 pool membership |
-| LB - Verify VM in pool | Not tested | — | AGW and F5 paths |
-| LB - Verify connection status | Not tested | — | |
-| LB - Drain and disconnect VM | Not tested | — | |
-| LB - Reconnect VM to pool | Not tested | — | |
+| LB - Connectivity check (dry run) | Not tested | — | Read-only; checks Azure AGW reachability and generic F5 pool-collection reachability (no fixed pool) |
+| LB - Pool status preview (dry run) | Not tested | — | Read-only; previews AGW NIC membership and every discovered F5 pool membership |
+| LB - Verify VM in pool | Not tested | — | AGW and F5 paths; F5 path asserts at least one discovered pool membership |
+| LB - Verify connection status | Not tested | — | F5 path reports enabled/disabled per discovered pool |
+| LB - Drain and disconnect VM | Not tested | — | F5 path loops over every discovered pool membership |
+| LB - Reconnect VM to pool | Not tested | — | F5 path loops over every discovered pool membership |
 | LB - Collect results | Not tested | — | |
 
 ### Workflows
@@ -61,13 +61,14 @@ Tracks testing progress for this demo. Update after each session. For procedural
 
 ## Open issues
 
-- Fixed but not yet re-tested: `LB - Verify VM in pool`, `LB - Verify connection status`,
-  `LB - Drain and disconnect VM`, and `LB - Reconnect VM to pool` were missing
-  `f5_pool_name`/`f5_partition`/`f5_pool_member_port` in their `extra_vars` (see
-  `group_vars/all/job_templates.yml`). Their playbooks (`playbooks/demo/lb_verify_presence.yml`,
-  `lb_verify_status.yml`, `lb_drain_disconnect.yml`, `lb_reconnect.yml`) do not load
-  `demo_variables.yml` via `vars_files`, so on the F5 backend path these variables depended
-  on unreliable `group_vars/all/` auto-loading and could reach `f5networks.f5_modules.bigip_pool_member`
-  (which requires `pool`) undefined. Extra_vars now pass them explicitly, matching the
-  `LB - Connectivity check` / `LB - Pool status preview` pattern. Needs an end-to-end F5 run
-  to confirm.
+- Not yet tested end-to-end: the F5 side of every `LB - *` scenario/dry-run template now
+  discovers pool, partition, and member port from the target VM's IP at runtime
+  (`playbooks/demo/tasks/f5_discover_pool_from_ip.yml`) instead of reading fixed
+  `f5_pool_name`/`f5_partition`/`f5_pool_member_port` variables — see
+  [docs/setup.md#f5-pool-and-partition-discovery](setup.md#f5-pool-and-partition-discovery).
+  `f5_pool_name`/`f5_partition`/`f5_pool_member_port` are no longer passed via `extra_vars` to
+  any scenario template (see `group_vars/all/job_templates.yml`); they remain required only
+  for `Setup - F5 pool member` / `Teardown - F5 pool member`. Needs an end-to-end F5 run
+  against a node that is a member of one pool, and ideally a second run against a node that
+  is a member of multiple pools/partitions at once, to confirm discovery finds and acts on
+  every membership correctly.

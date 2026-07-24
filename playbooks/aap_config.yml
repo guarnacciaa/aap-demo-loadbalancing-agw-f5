@@ -59,11 +59,14 @@
 
     # Always required regardless of deployment mode: the always-deployed
     # LB - * scenario templates and both dry-run templates consume these
-    # directly via extra_vars/group_vars. agw_name/agw_backend_pool_name are
-    # deliberately NOT validated here: the Application Gateway is discovered
-    # dynamically from agw_vm_hostname's NIC at runtime by every LB - *
-    # scenario template (see playbooks/demo/tasks/agw_discover_from_nic.yml);
-    # those two variables are lab/dev-only and validated further below.
+    # directly via extra_vars/group_vars. agw_name/agw_backend_pool_name and
+    # f5_pool_name/f5_partition/f5_pool_member_port are deliberately NOT
+    # validated here: the Application Gateway is discovered dynamically from
+    # agw_vm_hostname's NIC (see playbooks/demo/tasks/agw_discover_from_nic.yml),
+    # and the F5 pool/partition/port are discovered dynamically from the
+    # target IP (see playbooks/demo/tasks/f5_discover_pool_from_ip.yml), by
+    # every LB - * scenario template at runtime — all five variables are
+    # lab/dev-only (Setup/Teardown identity) and validated further below.
     # agw_vm_private_ip/f5_vm_private_ip are deliberately NOT validated
     # either: both are optional overrides, resolved automatically from the
     # corresponding *_vm_hostname at runtime (see tasks/resolve_vm_private_ip.yml).
@@ -76,12 +79,10 @@
           - agw_vm_hostname != "CHANGE_ME"
           - f5_server is defined
           - f5_server != "CHANGE_ME"
-          - f5_pool_name is defined
-          - f5_pool_name != "CHANGE_ME"
         fail_msg: >-
-          Set azure_resource_group, agw_vm_hostname, f5_server, and
-          f5_pool_name in demo_variables.yml — every LB - * scenario
-          template requires them regardless of demo_manage_infrastructure.
+          Set azure_resource_group, agw_vm_hostname, and f5_server in
+          demo_variables.yml — every LB - * scenario template requires them
+          regardless of demo_manage_infrastructure.
       tags:
         - always
 
@@ -102,6 +103,25 @@
           agw_backend_pool_name in demo_variables.yml so
           Setup - Azure infrastructure can attach agw_vm_hostname's NIC to
           the Application Gateway backend pool.
+      when: demo_manage_infrastructure | default(true) | bool
+      tags:
+        - always
+
+    # Only enforced in lab/dev mode: Setup - F5 pool member is the only
+    # consumer of f5_pool_name/f5_partition/f5_pool_member_port (it needs an
+    # explicit pool identity to create the VERY FIRST membership — before
+    # that, there is nothing for tasks/f5_discover_pool_from_ip.yml to find),
+    # and that job template is never even deployed when
+    # demo_manage_infrastructure is false.
+    - name: Validate F5 pool identity variables (lab/dev only)
+      ansible.builtin.assert:
+        that:
+          - f5_pool_name is defined
+          - f5_pool_name != "CHANGE_ME"
+        fail_msg: >-
+          demo_manage_infrastructure is true: set f5_pool_name in
+          demo_variables.yml so Setup - F5 pool member can register the
+          first pool member.
       when: demo_manage_infrastructure | default(true) | bool
       tags:
         - always

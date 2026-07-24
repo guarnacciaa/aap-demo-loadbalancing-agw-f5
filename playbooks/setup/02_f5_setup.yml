@@ -3,7 +3,9 @@
 #
 # F5 BIG-IP is bring-your-own (BYO): this playbook assumes an existing
 # LTM pool identified by f5_pool_name and f5_partition in demo_variables.yml.
-# It adds the F5 VM's private IP as a pool member on f5_pool_member_port.
+# It adds the F5 VM's private IP as a pool member on f5_pool_member_port
+# (an optional override, defaulting to 80 when left unset — see
+# demo_variables.yml.example).
 # f5_vm_private_ip is an optional override; when not set it is resolved
 # automatically from f5_vm_hostname via tasks/resolve_vm_private_ip.yml
 # (the same Azure VM/NIC lookup used by the demo/lb_*.yml F5 branch).
@@ -65,7 +67,7 @@
         pool: "{{ f5_pool_name }}"
         partition: "{{ f5_partition }}"
         address: "{{ f5_vm_private_ip }}"
-        port: "{{ f5_pool_member_port }}"
+        port: "{{ f5_pool_member_port | default(80) }}"
         state: present
         provider:
           server: "{{ f5_server }}"
@@ -81,7 +83,7 @@
         msg: >-
           F5 pool member registered.
           Pool: {{ f5_pool_name }} / {{ f5_partition }}
-          Member: {{ f5_vm_private_ip }}:{{ f5_pool_member_port }}
+          Member: {{ f5_vm_private_ip }}:{{ f5_pool_member_port | default(80) }}
           Next step: run WF - Disconnect VM from load balancer to validate the demo.
       tags:
         - always

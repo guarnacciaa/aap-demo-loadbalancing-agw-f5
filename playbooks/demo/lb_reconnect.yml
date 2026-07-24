@@ -1,8 +1,13 @@
-# Description: Re-insert VM into AGW backend pool or enable F5 pool member.
+# Description: Re-insert VM into AGW backend pool or enable F5 pool member(s).
 # AGW: re-attaches the target VM's NIC to the backend pool resource ID saved
 # by lb_drain_disconnect.yml in the VM's tags (NIC-based membership — see
 # tasks/agw_discover_from_nic.yml). Fails clearly if no saved association
 # exists for this VM.
+# F5: bigip_pool_member with state forced_offline/disabled never removes the
+# member record itself, so the membership(s) discovered by
+# lb_drain_disconnect.yml are still discoverable here (see
+# tasks/f5_discover_pool_from_ip.yml) — every discovered pool is re-enabled.
+# Fails clearly if the IP was never a member of any pool at all.
 ---
 - name: Reconnect VM to load balancer pool
   hosts: localhost
@@ -60,20 +65,44 @@
         - f5
         - reconnect
 
-    - name: Enable F5 pool member
+    - name: Discover every F5 pool membership for the target VM's IP
+      ansible.builtin.include_tasks: tasks/f5_discover_pool_from_ip.yml
+      when: lb_backend_type == 'f5'
+      tags:
+        - f5
+        - reconnect
+
+    - name: Fail fast when the target VM's IP is not a member of any F5 pool to re-enable
+      ansible.builtin.assert:
+        that:
+          - f5_discovered_pool_members | length > 0
+        fail_msg: >-
+          {{ target_vm_ip }} is not registered as a member of any F5 pool
+          visible to the configured API credential — there is nothing to
+          reconnect. Run Setup - F5 pool member first, or check
+          target_vm_hostname/target_vm_ip and the F5 credential's partition
+          access.
+      when: lb_backend_type == 'f5'
+      tags:
+        - f5
+        - reconnect
+
+    - name: Enable every discovered F5 pool member
       when: lb_backend_type == 'f5'
       f5networks.f5_modules.bigip_pool_member:
-        pool: "{{ f5_pool_name }}"
-        partition: "{{ f5_partition }}"
-        name: "{{ target_vm_hostname }}"
+        pool: "{{ item.pool }}"
+        partition: "{{ item.partition }}"
         address: "{{ target_vm_ip }}"
-        port: "{{ f5_pool_member_port }}"
+        port: "{{ item.port }}"
         state: enabled
         provider:
           server: "{{ f5_server }}"
           user: "{{ f5_username }}"
           password: "{{ f5_password }}"
           validate_certs: false
+      loop: "{{ f5_discovered_pool_members | default([]) }}"
+      loop_control:
+        label: "{{ item.partition }}/{{ item.pool }}:{{ item.port }}"
       tags:
         - f5
         - reconnect
@@ -84,5 +113,6 @@
           lb_reconnect: completed
           lb_backend_type: "{{ lb_backend_type }}"
           target_vm_ip: "{{ target_vm_ip }}"
+          f5_discovered_pool_members: "{{ f5_discovered_pool_members | default([]) }}"
       tags:
         - reconnect

@@ -214,19 +214,38 @@ agw_backend_pool_name: CHANGE_ME
 # azure_vm_ssh_public_key: CHANGE_ME_SSH_PUBLIC_KEY
 
 # ============================================================================
-# F5 BIG-IP [ALWAYS REQUIRED]
+# F5 BIG-IP [ALWAYS REQUIRED except where noted]
 # ============================================================================
-# Consumed by LB - Verify/Drain/Reconnect/Collect and the dry-run templates in
-# every deployment mode. F5 BIG-IP itself is always bring-your-own (this demo
-# never provisions a BIG-IP instance); in customer/PoC mode f5_pool_name must
-# name the customer's EXISTING pool.
-# f5_password is mapped from vault above.
+# f5_server/f5_username (with f5_password mapped from vault above) are
+# consumed by every LB - * scenario/dry-run template in every deployment
+# mode: they authenticate the discovery call in
+# playbooks/demo/tasks/f5_discover_pool_from_ip.yml, which finds every pool
+# (and partition, and member port) where the target IP is currently
+# registered — see docs/setup.md#f5-pool-and-partition-discovery. F5 BIG-IP
+# itself is always bring-your-own (this demo never provisions a BIG-IP
+# instance).
 # f5_server is the management IP or hostname; f5_username is the API user.
 f5_server: CHANGE_ME
 f5_username: admin
+
+# f5_pool_name / f5_partition / f5_pool_member_port are [LAB/DEV ONLY]: the
+# only consumers are Setup - F5 pool member / Teardown - F5 pool member,
+# which need an explicit pool identity to create the VERY FIRST membership
+# (before that, there is nothing yet for discovery to find). No LB - *
+# scenario template reads them — they discover pool/partition/port from the
+# target IP instead (see the note above). Also usable as an optional
+# override at launch (-e f5_pool_name=...) to bypass discovery and restrict
+# an LB - * action to one specific pool.
 f5_pool_name: CHANGE_ME
-f5_pool_member_port: 80
 f5_partition: Common
+
+# f5_pool_member_port is a further optional override, on top of the two
+# above: Setup/Teardown - F5 pool member default it to 80 (a plain
+# `| default(80)` in the tasks themselves) when left unset here, since 80 is
+# by far the most common pool member port for the kind of HTTP backend this
+# demo targets. Uncomment and set only if the target pool member must use a
+# different port (for example an HTTPS-only backend on 443).
+# f5_pool_member_port: 80
 
 # ============================================================================
 # Demo operational settings [ALWAYS REQUIRED]

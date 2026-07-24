@@ -3,7 +3,11 @@
 # currently attached to (NIC-based membership — see
 # tasks/agw_discover_from_nic.yml) and saves that pool's resource ID on the
 # VM's tags so lb_reconnect.yml can restore the exact same association
-# later, in a separate job run. F5 uses forced_offline then disabled.
+# later, in a separate job run. F5 discovers every pool membership for the
+# target IP (see tasks/f5_discover_pool_from_ip.yml) and applies
+# forced_offline then disabled to each one — a node can be a member of
+# several pools at once, and leaving any of them enabled would keep routing
+# traffic to the VM.
 ---
 - name: Drain and disconnect VM from load balancer
   hosts: localhost
@@ -71,18 +75,41 @@
             - f5
             - drain
 
-        - name: Force F5 pool member offline to drain existing connections
+        - name: Discover every F5 pool membership for the target VM's IP
+          ansible.builtin.include_tasks: tasks/f5_discover_pool_from_ip.yml
+          tags:
+            - f5
+            - drain
+
+        - name: Fail fast when the target VM's IP is not currently a member of any F5 pool
+          ansible.builtin.assert:
+            that:
+              - f5_discovered_pool_members | length > 0
+            fail_msg: >-
+              {{ target_vm_ip }} is not currently registered as a member of
+              any F5 pool visible to the configured API credential. Nothing
+              to drain/disconnect. Check target_vm_hostname/target_vm_ip,
+              the F5 credential's partition access, or pass f5_pool_name
+              explicitly to bypass discovery.
+          tags:
+            - f5
+            - drain
+
+        - name: Force every discovered F5 pool member offline to drain existing connections
           f5networks.f5_modules.bigip_pool_member:
-            pool: "{{ f5_pool_name }}"
-            partition: "{{ f5_partition }}"
+            pool: "{{ item.pool }}"
+            partition: "{{ item.partition }}"
             address: "{{ target_vm_ip }}"
-            port: "{{ f5_pool_member_port }}"
+            port: "{{ item.port }}"
             state: forced_offline
             provider:
               server: "{{ f5_server }}"
               user: "{{ f5_username }}"
               password: "{{ f5_password }}"
               validate_certs: false
+          loop: "{{ f5_discovered_pool_members }}"
+          loop_control:
+            label: "{{ item.partition }}/{{ item.pool }}:{{ item.port }}"
           tags:
             - f5
             - drain
@@ -94,18 +121,21 @@
             - f5
             - drain
 
-        - name: Disable F5 pool member after drain
+        - name: Disable every discovered F5 pool member after drain
           f5networks.f5_modules.bigip_pool_member:
-            pool: "{{ f5_pool_name }}"
-            partition: "{{ f5_partition }}"
+            pool: "{{ item.pool }}"
+            partition: "{{ item.partition }}"
             address: "{{ target_vm_ip }}"
-            port: "{{ f5_pool_member_port }}"
+            port: "{{ item.port }}"
             state: disabled
             provider:
               server: "{{ f5_server }}"
               user: "{{ f5_username }}"
               password: "{{ f5_password }}"
               validate_certs: false
+          loop: "{{ f5_discovered_pool_members }}"
+          loop_control:
+            label: "{{ item.partition }}/{{ item.pool }}:{{ item.port }}"
           tags:
             - f5
             - drain
@@ -116,5 +146,6 @@
           lb_drain_disconnect: completed
           lb_backend_type: "{{ lb_backend_type }}"
           target_vm_ip: "{{ target_vm_ip }}"
+          f5_discovered_pool_members: "{{ f5_discovered_pool_members | default([]) }}"
       tags:
         - drain

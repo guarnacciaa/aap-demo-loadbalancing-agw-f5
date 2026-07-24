@@ -25,8 +25,9 @@ controller_templates:
       # auto-loaded for playbooks/demo/*.yml when AAP supplies its own
       # generated inventory instead of this project's inventory.yml.
       azure_auth_mode: "{{ azure_auth_mode }}"
-      f5_pool_name: "{{ f5_pool_name }}"
-      f5_partition: "{{ f5_partition }}"
+      # No f5_pool_name/f5_partition to pass here: the F5 branch below
+      # proves API reachability generically instead of checking one fixed
+      # pool — see the file header note in lb_precheck_connectivity.yml.
     credentials:
       - "{{ azure_credential_name }}"
       - "{{ f5_credential_name }}"
@@ -50,9 +51,9 @@ controller_templates:
       # See the comment on LB - Connectivity check above: this playbook also
       # branches on azure_auth_mode and must receive it via extra_vars.
       azure_auth_mode: "{{ azure_auth_mode }}"
-      f5_pool_name: "{{ f5_pool_name }}"
-      f5_partition: "{{ f5_partition }}"
-      f5_pool_member_port: "{{ f5_pool_member_port }}"
+      # No f5_pool_name/f5_partition/f5_pool_member_port to pass here: the F5
+      # branch discovers pool, partition, and port from the target IP at
+      # runtime — see playbooks/demo/tasks/f5_discover_pool_from_ip.yml.
     credentials:
       - "{{ azure_credential_name }}"
       - "{{ f5_credential_name }}"
@@ -73,12 +74,10 @@ controller_templates:
       # See the comment on LB - Connectivity check above: this playbook also
       # branches on azure_auth_mode and must receive it via extra_vars.
       azure_auth_mode: "{{ azure_auth_mode }}"
-      # The F5 branch (lb_backend_type: f5) needs these to build the
-      # bigip_pool_member/uri lookup; group_vars/all/ auto-load is not
-      # reliable here for the same reason noted above.
-      f5_pool_name: "{{ f5_pool_name }}"
-      f5_partition: "{{ f5_partition }}"
-      f5_pool_member_port: "{{ f5_pool_member_port }}"
+      # The F5 branch (lb_backend_type: f5) discovers pool/partition/port
+      # from the target IP at runtime — see
+      # playbooks/demo/tasks/f5_discover_pool_from_ip.yml — no fixed
+      # f5_pool_name/f5_partition/f5_pool_member_port to pass here.
     credentials:
       - "{{ azure_credential_name }}"
       - "{{ f5_credential_name }}"
@@ -97,11 +96,8 @@ controller_templates:
       target_vm_hostname: "{{ agw_vm_hostname }}"
       azure_resource_group: "{{ azure_resource_group }}"
       azure_auth_mode: "{{ azure_auth_mode }}"
-      # See the comment on LB - Verify VM in pool above: required by the F5
-      # branch's bigip_pool_member check; not reliably auto-loaded otherwise.
-      f5_pool_name: "{{ f5_pool_name }}"
-      f5_partition: "{{ f5_partition }}"
-      f5_pool_member_port: "{{ f5_pool_member_port }}"
+      # See the comment on LB - Verify VM in pool above: the F5 branch
+      # discovers pool/partition/port from the target IP at runtime.
     credentials:
       - "{{ azure_credential_name }}"
       - "{{ f5_credential_name }}"
@@ -121,11 +117,8 @@ controller_templates:
       azure_resource_group: "{{ azure_resource_group }}"
       drain_wait_timeout: "{{ drain_wait_timeout }}"
       azure_auth_mode: "{{ azure_auth_mode }}"
-      # See the comment on LB - Verify VM in pool above: required by the F5
-      # branch's bigip_pool_member drain/disable tasks.
-      f5_pool_name: "{{ f5_pool_name }}"
-      f5_partition: "{{ f5_partition }}"
-      f5_pool_member_port: "{{ f5_pool_member_port }}"
+      # See the comment on LB - Verify VM in pool above: the F5 branch
+      # discovers pool/partition/port from the target IP at runtime.
     credentials:
       - "{{ azure_credential_name }}"
       - "{{ f5_credential_name }}"
@@ -144,11 +137,8 @@ controller_templates:
       target_vm_hostname: "{{ agw_vm_hostname }}"
       azure_resource_group: "{{ azure_resource_group }}"
       azure_auth_mode: "{{ azure_auth_mode }}"
-      # See the comment on LB - Verify VM in pool above: required by the F5
-      # branch's bigip_pool_member enable task.
-      f5_pool_name: "{{ f5_pool_name }}"
-      f5_partition: "{{ f5_partition }}"
-      f5_pool_member_port: "{{ f5_pool_member_port }}"
+      # See the comment on LB - Verify VM in pool above: the F5 branch
+      # discovers pool/partition/port from the target IP at runtime.
     credentials:
       - "{{ azure_credential_name }}"
       - "{{ f5_credential_name }}"

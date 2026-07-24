@@ -1,0 +1,101 @@
+# Description: Discover every F5 BIG-IP LTM pool membership — pool name,
+# partition, AND member port — for the target VM's IP, so lb_*.yml playbooks
+# never need f5_pool_name/f5_partition/f5_pool_member_port configured as
+# fixed variables. Mirrors the AGW-side NIC-based discovery in
+# tasks/agw_discover_from_nic.yml: the pool/partition/port combination(s)
+# are derived from the running BIG-IP configuration at runtime instead of
+# being pre-configured.
+#
+# Decision: bigip_pool_member ties membership to pool+partition+port, and
+# the SAME node IP can be a member of several pools at once (in the same or
+# different partitions, at the same or different ports) — disabling only
+# one such membership would leave the others actively receiving traffic. A
+# single GET on the pool collection with expandSubcollections=true returns
+# every pool the F5 API credential's partition access allows, with its
+# members expanded inline, in ONE API call. Filtering that result for
+# members whose address matches the target IP — across every pool and
+# partition returned, not just a pre-configured one — is what lets
+# lb_drain_disconnect.yml / lb_reconnect.yml correctly touch every
+# membership at once instead of just the one an operator happened to name.
+#
+# lookup('ansible.builtin.subelements', ...) + a looped set_fact is the
+# standard Ansible idiom for flattening a parent list (pools) against a
+# nested subcollection (their expanded members) into matched pairs — Jinja2
+# (unlike Python) has no list-comprehension syntax for this kind of
+# cross-object filter, so a pure `{{ }}` expression cannot build this list.
+#
+# Override: when f5_pool_name is explicitly set (for example
+# -e f5_pool_name=... at launch, useful for debugging or to restrict the
+# action to one specific pool even when the node is a member of several),
+# discovery is skipped entirely and a single fixed pool/partition/port
+# match is used instead, falling back to f5_partition: Common and
+# f5_pool_member_port: 80 when those are also left unset.
+#
+# Limitations:
+#   - Discovery only sees partitions the F5 API credential can access — see
+#     docs/setup.md#f5-pool-and-partition-discovery for the required RBAC.
+#   - The member port is parsed from the member's "<address>:<port>" name
+#     field by splitting on the last ':', which assumes IPv4 addresses,
+#     matching the IPv4-only scope of the rest of this demo.
+#
+# Requires: f5_server, f5_username, f5_password, target_vm_ip.
+# Sets: f5_discovered_pool_members (list of {pool, partition, port} dicts;
+# empty list when the IP is not currently a member of any visible pool).
+---
+- name: Use a fixed pool/partition/port instead of discovery when f5_pool_name is explicitly overridden
+  ansible.builtin.set_fact:
+    f5_discovered_pool_members:
+      - pool: "{{ f5_pool_name }}"
+        partition: "{{ f5_partition | default('Common') }}"
+        port: "{{ f5_pool_member_port | default(80) }}"
+  when: f5_pool_name is defined and f5_pool_name | length > 0
+  tags:
+    - f5
+    - discover
+
+- name: Discover pool/partition/port from BIG-IP when no fixed pool override was supplied
+  when: f5_pool_name is not defined or f5_pool_name | length == 0
+  block:
+    - name: Query every F5 BIG-IP LTM pool with its members expanded inline
+      ansible.builtin.uri:
+        url: "https://{{ f5_server }}/mgmt/tm/ltm/pool/?expandSubcollections=true"
+        method: GET
+        user: "{{ f5_username }}"
+        password: "{{ f5_password }}"
+        force_basic_auth: true
+        validate_certs: false
+        status_code: 200
+      register: f5_pool_query
+      tags:
+        - f5
+        - discover
+
+    - name: Initialize the list of discovered pool memberships before the matching loop
+      ansible.builtin.set_fact:
+        f5_discovered_pool_members: []
+      tags:
+        - f5
+        - discover
+
+    - name: Record every pool membership whose address matches the target VM's IP, across every pool and partition returned
+      ansible.builtin.set_fact:
+        f5_discovered_pool_members: >-
+          {{
+            f5_discovered_pool_members
+            + [{'pool': item[0].name, 'partition': item[0].partition, 'port': item[1].name.split(':')[-1]}]
+          }}
+      # Subscript notation (['items'], not .items) is required here: Jinja's
+      # dot-access tries Python attribute lookup first, and plain dicts have
+      # a built-in .items() method that shadows a same-named "items" key —
+      # `.json.items` would silently resolve to that bound method instead
+      # of the JSON key.
+      loop: "{{ lookup('ansible.builtin.subelements', f5_pool_query.json['items'] | default([]), 'membersReference.items', {'skip_missing': True}) }}"
+      loop_control:
+        label: "{{ item[0].partition }}/{{ item[0].name }}"
+      when: item[1].address == target_vm_ip
+      tags:
+        - f5
+        - discover
+  tags:
+    - f5
+    - discover

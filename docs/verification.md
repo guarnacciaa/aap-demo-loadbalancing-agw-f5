@@ -42,10 +42,18 @@ so verification is against the VM's NIC, not a static backend IP address:
 
 ### F5
 
+Pool, partition, and member port are discovered automatically from the target VM's IP
+(see [docs/setup.md#f5-pool-and-partition-discovery](setup.md#f5-pool-and-partition-discovery)) —
+a node can be a member of several pools at once, and drain/reconnect touches all of them:
+
 ```bash
-# TMSH (on BIG-IP) — member should show disabled/offline after disconnect
-tmsh show ltm pool <pool> members
+# TMSH (on BIG-IP) — list every pool and its members to find which one(s) hold the
+# target IP; each matching member should show disabled/offline after disconnect
+tmsh list ltm pool recursive
 ```
+
+`LB - Pool status preview (dry run)` and `LB - Verify connection status` report the same
+information per pool from Ansible — see [docs/procedures.md](procedures.md).
 
 ## References
 

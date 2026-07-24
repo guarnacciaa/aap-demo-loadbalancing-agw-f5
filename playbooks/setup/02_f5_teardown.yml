@@ -4,6 +4,10 @@
 # F5 BIG-IP is bring-your-own: this playbook only removes the pool member entry.
 # It does not modify or delete the pool itself.
 #
+# f5_pool_member_port is an optional override, defaulting to 80 when left
+# unset — must match whatever 02_f5_setup.yml actually registered the
+# member on (BIG-IP identifies a member by address:port together).
+#
 # f5_vm_private_ip is an optional override; when not set it is resolved
 # automatically from f5_vm_hostname via tasks/resolve_vm_private_ip.yml (same
 # lookup as 02_f5_setup.yml, so this removes the exact same address it added).
@@ -56,7 +60,7 @@
         pool: "{{ f5_pool_name }}"
         partition: "{{ f5_partition }}"
         address: "{{ f5_vm_private_ip }}"
-        port: "{{ f5_pool_member_port }}"
+        port: "{{ f5_pool_member_port | default(80) }}"
         state: absent
         provider:
           server: "{{ f5_server }}"
@@ -73,6 +77,6 @@
         msg: >-
           F5 pool member removed.
           Pool: {{ f5_pool_name }} / {{ f5_partition }}
-          Member removed: {{ f5_vm_private_ip }}:{{ f5_pool_member_port }}
+          Member removed: {{ f5_vm_private_ip }}:{{ f5_pool_member_port | default(80) }}
       tags:
         - always

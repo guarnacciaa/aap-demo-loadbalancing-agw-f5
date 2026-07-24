@@ -1,5 +1,6 @@
 # Description: Verify target VM is present in AGW backend pool (via its
-# NIC's ipConfiguration) or F5 pool (by IP/port).
+# NIC's ipConfiguration) or in at least one F5 pool (discovered by IP across
+# every pool/partition — see tasks/f5_discover_pool_from_ip.yml).
 # Set lb_backend_type to agw or f5 and pass target_vm_hostname. target_vm_ip
 # is an optional override — auto-resolved from target_vm_hostname otherwise.
 ---
@@ -64,28 +65,22 @@
             - f5
             - verify
 
-        # REST GET avoids assuming member state (enabled/disabled) during presence checks.
-        - name: Query F5 pool member via iControl REST API
-          ansible.builtin.uri:
-            url: >-
-              https://{{ f5_server }}/mgmt/tm/ltm/pool/~{{ f5_partition }}~{{ f5_pool_name }}/members/~{{ f5_partition }}~{{ target_vm_ip }}:{{ f5_pool_member_port }}
-            method: GET
-            user: "{{ f5_username }}"
-            password: "{{ f5_password }}"
-            force_basic_auth: true
-            validate_certs: false
-            status_code: 200
-          register: f5_member_get
+        # Discovery itself doubles as the presence check: it already queries
+        # every pool/partition visible to the credential and returns every
+        # membership matching the target IP, so a non-empty result IS "present".
+        - name: Discover every F5 pool membership for the target VM's IP
+          ansible.builtin.include_tasks: tasks/f5_discover_pool_from_ip.yml
           tags:
             - f5
             - verify
 
-        - name: Assert F5 pool member resource exists
+        - name: Assert the target VM's IP is a member of at least one F5 pool
           ansible.builtin.assert:
             that:
-              - f5_member_get.json.address is defined
+              - f5_discovered_pool_members | length > 0
             fail_msg: >-
-              F5 pool member {{ target_vm_ip }}:{{ f5_pool_member_port }} not found in {{ f5_pool_name }}.
+              F5 pool member {{ target_vm_ip }} not found in any pool
+              visible to the configured API credential.
           tags:
             - f5
             - verify
@@ -97,5 +92,6 @@
           lb_backend_type: "{{ lb_backend_type }}"
           target_vm_hostname: "{{ target_vm_hostname }}"
           target_vm_ip: "{{ target_vm_ip }}"
+          f5_discovered_pool_members: "{{ f5_discovered_pool_members | default([]) }}"
       tags:
         - verify

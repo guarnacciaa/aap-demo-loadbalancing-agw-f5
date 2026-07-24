@@ -20,16 +20,20 @@
         - verify
 
     # Required in every deployment mode: the always-deployed LB - * scenario
-    # templates and both dry-run templates look up the target VM/F5 pool by
+    # templates and both dry-run templates look up the target VM/F5 server by
     # these values (see the [ALWAYS REQUIRED] sections in
-    # demo_variables.yml.example). agw_name/agw_backend_pool_name are
-    # deliberately NOT checked here: the Application Gateway is discovered
-    # dynamically from agw_vm_hostname's NIC at runtime (see
-    # playbooks/demo/tasks/agw_discover_from_nic.yml), they are only
-    # consumed by Setup - Azure infrastructure (checked further below,
-    # lab/dev only). agw_vm_private_ip/f5_vm_private_ip are also
-    # deliberately NOT checked: both are optional overrides, resolved
-    # automatically from the corresponding *_vm_hostname otherwise.
+    # demo_variables.yml.example). agw_name/agw_backend_pool_name and
+    # f5_pool_name/f5_partition/f5_pool_member_port are deliberately NOT
+    # checked here: the Application Gateway is discovered dynamically from
+    # agw_vm_hostname's NIC at runtime (see
+    # playbooks/demo/tasks/agw_discover_from_nic.yml), and the F5
+    # pool/partition/port are discovered dynamically from the target IP (see
+    # playbooks/demo/tasks/f5_discover_pool_from_ip.yml) — all five are only
+    # consumed by Setup/Teardown - Azure infrastructure / F5 pool member
+    # (checked further below, lab/dev only). agw_vm_private_ip/
+    # f5_vm_private_ip are also deliberately NOT checked: both are optional
+    # overrides, resolved automatically from the corresponding
+    # *_vm_hostname otherwise.
     - name: Confirm core load balancer identity variables (required in every mode)
       ansible.builtin.assert:
         that:
@@ -39,12 +43,10 @@
           - agw_vm_hostname != "CHANGE_ME"
           - f5_server is defined
           - f5_server != "CHANGE_ME"
-          - f5_pool_name is defined
-          - f5_pool_name != "CHANGE_ME"
         fail_msg: >-
           Core load balancer identity variables are incomplete. Check
           demo_variables.yml (azure_resource_group, agw_vm_hostname,
-          f5_server, f5_pool_name).
+          f5_server).
       tags:
         - verify
 
@@ -110,6 +112,26 @@
           agw_backend_pool_name in demo_variables.yml so
           Setup - Azure infrastructure can attach agw_vm_hostname's NIC to
           the Application Gateway backend pool.
+      when: demo_manage_infrastructure | default(true) | bool
+      tags:
+        - verify
+
+    # Only required in lab/dev mode: Setup - F5 pool member is the only
+    # consumer of f5_pool_name/f5_partition/f5_pool_member_port (it needs an
+    # explicit pool identity to create the VERY FIRST membership — before
+    # that, there is nothing for tasks/f5_discover_pool_from_ip.yml to
+    # find), and that job template is never even deployed when
+    # demo_manage_infrastructure is false — see the [LAB/DEV ONLY] section
+    # in demo_variables.yml.example.
+    - name: Confirm F5 pool identity variables (lab/dev only)
+      ansible.builtin.assert:
+        that:
+          - f5_pool_name is defined
+          - f5_pool_name != "CHANGE_ME"
+        fail_msg: >-
+          demo_manage_infrastructure is true: set f5_pool_name in
+          demo_variables.yml so Setup - F5 pool member can register the
+          first pool member.
       when: demo_manage_infrastructure | default(true) | bool
       tags:
         - verify

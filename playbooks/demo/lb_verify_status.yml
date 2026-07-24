@@ -1,5 +1,6 @@
 # Description: Verify connection/member status for AGW backend (via the
-# target VM's NIC) or F5 pool member.
+# target VM's NIC) or every discovered F5 pool member (see
+# tasks/f5_discover_pool_from_ip.yml).
 ---
 - name: Verify load balancer connection status for target VM
   hosts: localhost
@@ -80,13 +81,24 @@
         - f5
         - verify
 
-    - name: Check F5 pool member enabled state
+    - name: Discover every F5 pool membership for the target VM's IP
+      ansible.builtin.include_tasks: tasks/f5_discover_pool_from_ip.yml
+      when: lb_backend_type == 'f5'
+      tags:
+        - f5
+        - verify
+
+    # check_mode + state: enabled never changes anything; "changed: true"
+    # only means the member is not currently enabled (i.e. it is disabled or
+    # forced_offline), which is how the loop below reports status per pool
+    # without a second, state-specific read.
+    - name: Check enabled state for every discovered F5 pool member
       when: lb_backend_type == 'f5'
       f5networks.f5_modules.bigip_pool_member:
-        pool: "{{ f5_pool_name }}"
-        partition: "{{ f5_partition }}"
+        pool: "{{ item.pool }}"
+        partition: "{{ item.partition }}"
         address: "{{ target_vm_ip }}"
-        port: "{{ f5_pool_member_port }}"
+        port: "{{ item.port }}"
         state: enabled
         provider:
           server: "{{ f5_server }}"
@@ -94,7 +106,35 @@
           password: "{{ f5_password }}"
           validate_certs: false
       check_mode: true
+      loop: "{{ f5_discovered_pool_members | default([]) }}"
+      loop_control:
+        label: "{{ item.partition }}/{{ item.pool }}:{{ item.port }}"
       register: f5_enabled_check
+      tags:
+        - f5
+        - verify
+
+    - name: Report F5 pool member status per discovered pool
+      ansible.builtin.debug:
+        msg: >-
+          {{ target_vm_ip }} is
+          {{ 'DISABLED/OFFLINE' if result.changed else 'ENABLED' }}
+          in pool {{ result.item.partition }}/{{ result.item.pool }}:{{ result.item.port }}.
+      loop: "{{ f5_enabled_check.results | default([]) }}"
+      loop_control:
+        loop_var: result
+        label: "{{ result.item.partition }}/{{ result.item.pool }}:{{ result.item.port }}"
+      when: lb_backend_type == 'f5'
+      tags:
+        - f5
+        - verify
+
+    - name: Report when the target VM's IP has no F5 pool membership at all
+      ansible.builtin.debug:
+        msg: "{{ target_vm_ip }} is not a member of any F5 pool visible to the configured API credential."
+      when:
+        - lb_backend_type == 'f5'
+        - (f5_discovered_pool_members | default([])) | length == 0
       tags:
         - f5
         - verify
@@ -105,5 +145,6 @@
           lb_verify_status: completed
           lb_backend_type: "{{ lb_backend_type }}"
           target_vm_ip: "{{ target_vm_ip }}"
+          f5_discovered_pool_members: "{{ f5_discovered_pool_members | default([]) }}"
       tags:
         - verify

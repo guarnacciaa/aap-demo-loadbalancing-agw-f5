@@ -62,15 +62,18 @@ ansible-playbook playbooks/demo/lb_reconnect.yml \
 
 # F5 reconnect — target_vm_ip is resolved automatically from
 # target_vm_hostname (tasks/resolve_vm_private_ip.yml); pass -e
-# target_vm_ip=<explicit IP> instead to override auto-discovery.
+# target_vm_ip=<explicit IP> instead to override auto-discovery. Pool,
+# partition, and member port are likewise discovered automatically from
+# the resolved IP (see docs/setup.md#f5-pool-and-partition-discovery) — no
+# f5_pool_name needed. Pass -e f5_pool_name=app_pool instead to bypass
+# discovery and restrict the action to one specific pool.
 ansible-playbook playbooks/demo/lb_reconnect.yml \
   -e lb_backend_type=f5 \
   -e target_vm_hostname=azure-vm-f501 \
   -e azure_resource_group=my-rg \
   -e f5_server=10.0.2.5 \
   -e f5_username=admin \
-  -e f5_password=secret \
-  -e f5_pool_name=app_pool
+  -e f5_password=secret
 ```
 
 ## Teardown

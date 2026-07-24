@@ -18,6 +18,11 @@
 # VM's own NIC, not from a fixed agw_name/agw_backend_pool_name. When absent,
 # this also reports whether a previously saved association exists (i.e.
 # what LB - Reconnect VM to pool would restore).
+#
+# F5: pool, partition, AND member port are all discovered from the target
+# IP (see tasks/f5_discover_pool_from_ip.yml) instead of read from fixed
+# f5_pool_name/f5_partition/f5_pool_member_port variables — a node can be a
+# member of several pools at once, and every one of them is reported.
 ---
 - name: Preview load balancer pool state for the target VM
   hosts: localhost
@@ -92,21 +97,24 @@
             - f5
             - preview
 
-        # status_code accepts both 200 (member exists) and 404 (member
-        # absent) so this stays a report, not a failure, in either case.
-        - name: Query F5 pool member via iControl REST API
-          ansible.builtin.uri:
-            url: >-
-              https://{{ f5_server }}/mgmt/tm/ltm/pool/~{{ f5_partition }}~{{ f5_pool_name }}/members/~{{ f5_partition }}~{{ target_vm_ip }}:{{ f5_pool_member_port }}
-            method: GET
-            user: "{{ f5_username }}"
-            password: "{{ f5_password }}"
-            force_basic_auth: true
-            validate_certs: false
-            status_code:
-              - 200
-              - 404
-          register: f5_member_preview
+        # Discovery itself is a read-only report of current membership — no
+        # further "does it exist" call is needed, unlike the previous fixed
+        # single-pool lookup, since discovery already covers every pool.
+        - name: Discover every F5 pool membership for the target VM's IP
+          ansible.builtin.include_tasks: tasks/f5_discover_pool_from_ip.yml
+          tags:
+            - f5
+            - preview
+
+        # Pre-formatted here (rather than inline in the debug message below)
+        # because Jinja2 has no list-comprehension syntax to build
+        # "partition/pool:port" strings from a list of dicts in one expression.
+        - name: Build the "partition/pool:port" summary list for the debug report below
+          ansible.builtin.set_fact:
+            f5_discovered_pool_summary: "{{ f5_discovered_pool_summary | default([]) + [item.partition + '/' + item.pool + ':' + (item.port | string)] }}"
+          loop: "{{ f5_discovered_pool_members | default([]) }}"
+          loop_control:
+            label: "{{ item.partition }}/{{ item.pool }}:{{ item.port }}"
           tags:
             - f5
             - preview
@@ -114,11 +122,19 @@
         - name: Report F5 pool member preview
           ansible.builtin.debug:
             msg: >-
-              F5 pool member {{ target_vm_ip }}:{{ f5_pool_member_port }} in
-              {{ f5_pool_name }}/{{ f5_partition }} is currently
-              {{ ('PRESENT (session: ' + (f5_member_preview.json.session | default('unknown')) + ') — drain/disconnect will change it')
-                 if f5_member_preview.status == 200
-                 else 'ABSENT — reconnect will add it' }}.
+              {{
+                'VM ' + target_vm_hostname + ' (' + target_vm_ip + ') is currently PRESENT in '
+                + (f5_discovered_pool_members | length | string) + ' F5 pool(s): '
+                + (f5_discovered_pool_summary | default([]) | join(', '))
+                + ' — drain/disconnect will change all of them.'
+                if (f5_discovered_pool_members | length > 0)
+                else (
+                  'VM ' + target_vm_hostname + ' (' + target_vm_ip + ') is currently ABSENT from every F5 '
+                  + 'pool visible to the configured API credential — reconnect will restore it only if it '
+                  + 'was a member before (bigip_pool_member disable does not remove the record; a '
+                  + 'never-provisioned VM has no membership to restore).'
+                )
+              }}
           tags:
             - f5
             - preview
@@ -129,5 +145,6 @@
           lb_preview_backend_type: "{{ lb_backend_type }}"
           lb_preview_target_vm_hostname: "{{ target_vm_hostname }}"
           lb_preview_target_vm_ip: "{{ target_vm_ip }}"
+          f5_discovered_pool_members: "{{ f5_discovered_pool_members | default([]) }}"
       tags:
         - preview
