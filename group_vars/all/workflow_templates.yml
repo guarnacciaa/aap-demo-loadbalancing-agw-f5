@@ -32,56 +32,47 @@ controller_workflows:
           required: false
     labels:
       - "{{ demo_label_name }}"
-    workflow_nodes:
+    # Use the simplified_workflow_nodes schema (ansible.controller.workflow_job_template_node
+    # under the hood) instead of the bulk workflow_nodes schema: the latter requires an
+    # explicit unified_job_template.type per node and a related.success_nodes/failure_nodes/
+    # always_nodes *dict* (not the list-of-{identifier,type} shape it might look like from the
+    # docs) — getting either wrong fails with "KeyError: 'type'" deep inside
+    # ansible.controller.workflow_job_template. The simplified schema resolves
+    # unified_job_template by plain name (scoped with lookup_organization to avoid ambiguous
+    # matches) and links nodes with a flat list of identifiers in success_nodes.
+    simplified_workflow_nodes:
       # Read-only credential/connectivity check: confirms AAP can
       # authenticate to Azure and F5 before any presence/status/drain task runs.
       - identifier: connectivity_check
-        unified_job_template:
-          organization:
-            name: "{{ demo_organization_name }}"
-          name: LB - Connectivity check (dry run)
+        unified_job_template: LB - Connectivity check (dry run)
+        lookup_organization: "{{ demo_organization_name }}"
+        success_nodes:
+          - pool_preview
       # Read-only pre-flight check: reports whether the target is currently
       # present in the selected backend before any change is made.
       - identifier: pool_preview
-        unified_job_template:
-          organization:
-            name: "{{ demo_organization_name }}"
-          name: LB - Pool status preview (dry run)
-        related:
-          - identifier: connectivity_check
-            type: success
+        unified_job_template: LB - Pool status preview (dry run)
+        lookup_organization: "{{ demo_organization_name }}"
+        success_nodes:
+          - verify_presence
       - identifier: verify_presence
-        unified_job_template:
-          organization:
-            name: "{{ demo_organization_name }}"
-          name: LB - Verify VM in pool
-        related:
-          - identifier: pool_preview
-            type: success
+        unified_job_template: LB - Verify VM in pool
+        lookup_organization: "{{ demo_organization_name }}"
+        success_nodes:
+          - verify_status
       - identifier: verify_status
-        unified_job_template:
-          organization:
-            name: "{{ demo_organization_name }}"
-          name: LB - Verify connection status
-        related:
-          - identifier: verify_presence
-            type: success
+        unified_job_template: LB - Verify connection status
+        lookup_organization: "{{ demo_organization_name }}"
+        success_nodes:
+          - drain_disconnect
       - identifier: drain_disconnect
-        unified_job_template:
-          organization:
-            name: "{{ demo_organization_name }}"
-          name: LB - Drain and disconnect VM
-        related:
-          - identifier: verify_status
-            type: success
+        unified_job_template: LB - Drain and disconnect VM
+        lookup_organization: "{{ demo_organization_name }}"
+        success_nodes:
+          - collect_results
       - identifier: collect_results
-        unified_job_template:
-          organization:
-            name: "{{ demo_organization_name }}"
-          name: LB - Collect results
-        related:
-          - identifier: drain_disconnect
-            type: success
+        unified_job_template: LB - Collect results
+        lookup_organization: "{{ demo_organization_name }}"
 
   - name: WF - Reconnect VM to load balancer
     description: >-
@@ -93,41 +84,29 @@ controller_workflows:
     ask_variables_on_launch: true
     labels:
       - "{{ demo_label_name }}"
-    workflow_nodes:
+    # See the comment on the simplified_workflow_nodes key in the workflow above for why this
+    # schema (rather than the bulk workflow_nodes schema) is used.
+    simplified_workflow_nodes:
       - identifier: connectivity_check
-        unified_job_template:
-          organization:
-            name: "{{ demo_organization_name }}"
-          name: LB - Connectivity check (dry run)
+        unified_job_template: LB - Connectivity check (dry run)
+        lookup_organization: "{{ demo_organization_name }}"
+        success_nodes:
+          - pool_preview
       - identifier: pool_preview
-        unified_job_template:
-          organization:
-            name: "{{ demo_organization_name }}"
-          name: LB - Pool status preview (dry run)
-        related:
-          - identifier: connectivity_check
-            type: success
+        unified_job_template: LB - Pool status preview (dry run)
+        lookup_organization: "{{ demo_organization_name }}"
+        success_nodes:
+          - reconnect
       - identifier: reconnect
-        unified_job_template:
-          organization:
-            name: "{{ demo_organization_name }}"
-          name: LB - Reconnect VM to pool
-        related:
-          - identifier: pool_preview
-            type: success
+        unified_job_template: LB - Reconnect VM to pool
+        lookup_organization: "{{ demo_organization_name }}"
+        success_nodes:
+          - verify_status
       - identifier: verify_status
-        unified_job_template:
-          organization:
-            name: "{{ demo_organization_name }}"
-          name: LB - Verify connection status
-        related:
-          - identifier: reconnect
-            type: success
+        unified_job_template: LB - Verify connection status
+        lookup_organization: "{{ demo_organization_name }}"
+        success_nodes:
+          - collect_results
       - identifier: collect_results
-        unified_job_template:
-          organization:
-            name: "{{ demo_organization_name }}"
-          name: LB - Collect results
-        related:
-          - identifier: verify_status
-            type: success
+        unified_job_template: LB - Collect results
+        lookup_organization: "{{ demo_organization_name }}"

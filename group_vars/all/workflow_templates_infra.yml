@@ -19,20 +19,19 @@ controller_workflows_infra:
     ask_variables_on_launch: true
     labels:
       - "{{ demo_label_name }}"
-    workflow_nodes:
+    # See the comment on simplified_workflow_nodes in group_vars/all/workflow_templates.yml:
+    # the bulk workflow_nodes schema requires an explicit unified_job_template.type per node
+    # and a related.success_nodes/failure_nodes/always_nodes *dict*; getting either wrong
+    # fails with "KeyError: 'type'" inside ansible.controller.workflow_job_template.
+    simplified_workflow_nodes:
       - identifier: azure_setup
-        unified_job_template:
-          organization:
-            name: "{{ demo_organization_name }}"
-          name: Setup - Azure infrastructure
+        unified_job_template: Setup - Azure infrastructure
+        lookup_organization: "{{ demo_organization_name }}"
+        success_nodes:
+          - f5_setup
       - identifier: f5_setup
-        unified_job_template:
-          organization:
-            name: "{{ demo_organization_name }}"
-          name: Setup - F5 pool member
-        related:
-          - identifier: azure_setup
-            type: success
+        unified_job_template: Setup - F5 pool member
+        lookup_organization: "{{ demo_organization_name }}"
 
   - name: WF - Demo teardown
     description: >-
@@ -45,17 +44,12 @@ controller_workflows_infra:
     ask_variables_on_launch: true
     labels:
       - "{{ demo_label_name }}"
-    workflow_nodes:
+    simplified_workflow_nodes:
       - identifier: f5_teardown
-        unified_job_template:
-          organization:
-            name: "{{ demo_organization_name }}"
-          name: Teardown - F5 pool member
+        unified_job_template: Teardown - F5 pool member
+        lookup_organization: "{{ demo_organization_name }}"
+        success_nodes:
+          - azure_teardown
       - identifier: azure_teardown
-        unified_job_template:
-          organization:
-            name: "{{ demo_organization_name }}"
-          name: Teardown - Azure infrastructure
-        related:
-          - identifier: f5_teardown
-            type: success
+        unified_job_template: Teardown - Azure infrastructure
+        lookup_organization: "{{ demo_organization_name }}"
