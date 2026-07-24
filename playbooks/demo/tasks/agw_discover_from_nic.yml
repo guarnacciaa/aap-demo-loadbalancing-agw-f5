@@ -110,8 +110,13 @@
   # exact backend pool resource ID in this tag so a later (and potentially
   # separate) lb_reconnect.yml run can restore precisely the same
   # association without it being passed in again.
+  # azure_rm_virtualmachine_info returns tags: null (not {}) for a VM that has
+  # no tags at all, so calling .get() directly on it fails with "'None' has no
+  # attribute 'get'". default({}, true) substitutes {} for both undefined AND
+  # an explicit None/falsy value, unlike a plain default({}) which only covers
+  # undefined.
   ansible.builtin.set_fact:
-    agw_discovered_pool_id_saved: "{{ agw_discovered_vm_info.vms[0].tags.get(agw_state_tag_key, '') }}"
+    agw_discovered_pool_id_saved: "{{ (agw_discovered_vm_info.vms[0].tags | default({}, true)).get(agw_state_tag_key, '') }}"
   tags:
     - agw
     - discover
