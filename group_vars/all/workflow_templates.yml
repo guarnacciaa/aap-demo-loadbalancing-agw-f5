@@ -11,7 +11,11 @@ controller_workflows:
     inventory: "{{ demo_inventory_name }}"
     project: "{{ demo_project_name }}"
     ask_variables_on_launch: true
-    survey_spec:
+    # survey_enabled must be set explicitly: survey_spec alone registers the
+    # survey definition but leaves it disabled, so the launch UI shows only
+    # the generic variables Prompt step with no survey questions.
+    survey_enabled: true
+    survey_spec: &lb_disconnect_survey
       name: LB disconnect survey
       description: Select load balancer backend type and target VM.
       spec:
@@ -82,6 +86,11 @@ controller_workflows:
     inventory: "{{ demo_inventory_name }}"
     project: "{{ demo_project_name }}"
     ask_variables_on_launch: true
+    # Same survey as WF - Disconnect VM from load balancer (see the anchor
+    # above): docs/procedures.md tells operators to provide the same survey
+    # values for reconnect, so reuse the identical spec instead of drifting.
+    survey_enabled: true
+    survey_spec: *lb_disconnect_survey
     labels:
       - "{{ demo_label_name }}"
     # See the comment on the simplified_workflow_nodes key in the workflow above for why this

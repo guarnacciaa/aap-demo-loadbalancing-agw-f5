@@ -95,6 +95,16 @@
         - azure
         - precheck
 
+    # Token-based auth (see tasks/f5_authenticate.yml): Basic Auth against
+    # /mgmt/tm/... does not authenticate f5_username on this environment, so
+    # this check must mint a token the same way every other F5 call in this
+    # demo does, or a connectivity check could pass/fail for the wrong reason.
+    - name: Authenticate to F5 BIG-IP before the connectivity check
+      ansible.builtin.include_tasks: tasks/f5_authenticate.yml
+      tags:
+        - f5
+        - precheck
+
     # A lightweight GET on the pool collection proves both authentication
     # and API reachability without assuming any specific pool exists — see
     # the file header note on why this no longer checks one fixed pool.
@@ -102,9 +112,7 @@
       ansible.builtin.uri:
         url: "https://{{ f5_server }}/mgmt/tm/ltm/pool/"
         method: GET
-        user: "{{ f5_username }}"
-        password: "{{ f5_password }}"
-        force_basic_auth: true
+        headers: "{{ f5_auth_headers }}"
         validate_certs: false
         status_code: 200
       register: f5_connectivity_check

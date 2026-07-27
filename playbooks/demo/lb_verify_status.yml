@@ -81,6 +81,11 @@
           user: "{{ f5_username }}"
           password: "{{ f5_password }}"
           validate_certs: false
+          # Matches tasks/f5_authenticate.yml's loginProviderName: this
+          # module's REST client mints its own token via the same
+          # /mgmt/shared/authn/login endpoint, so it needs the same auth
+          # partition name as every raw ansible.builtin.uri call in this demo.
+          auth_provider: "{{ f5_login_provider_name | default('tmos') }}"
       check_mode: true
       loop: "{{ f5_discovered_pool_members | default([]) }}"
       loop_control:

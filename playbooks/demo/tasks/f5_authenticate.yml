@@ -1,0 +1,56 @@
+# Description: Obtain a BIG-IP iControl REST authentication token via the
+# shared authn/login endpoint, instead of authenticating every raw F5 REST
+# call with HTTP Basic Auth (f5_username/f5_password sent on the request
+# itself, as tasks/f5_discover_pool_from_ip.yml and lb_precheck_connectivity.yml
+# used to do).
+#
+# Decision: on this environment, Basic Auth against /mgmt/tm/... does not
+# authenticate f5_username/f5_password at all — confirmed against a working
+# reference PowerShell token-refresh function that instead calls
+# /mgmt/shared/authn/login with {username, password, loginProviderName} and
+# reuses the returned token as an X-F5-Auth-Token header on every later call.
+# This matches F5's own documented pattern for token-based iControl REST
+# authentication (F5 KB K000148418: obtain a token once via a uri task, reuse
+# it as a header on every subsequent uri task) and is the exact same login
+# call f5networks.f5_modules performs internally for the module-based
+# bigip_* tasks elsewhere in this demo when provider.auth_provider is set.
+#
+# What would invalidate this: a BIG-IP configuration change that re-enables
+# Basic Auth for this account, or the account's actual auth partition being
+# renamed away from f5_login_provider_name (default "tmos", matching the
+# reference script — override per-environment if this F5 uses a different
+# configured auth partition name).
+#
+# Requires: f5_server, f5_username, f5_password. Optional: f5_login_provider_name
+# (defaults to "tmos").
+# Sets: f5_auth_token (raw token string) and f5_auth_headers (ready-to-use
+# headers dict for every ansible.builtin.uri task in this demo that talks to
+# /mgmt/tm/... directly).
+---
+- name: Authenticate to F5 BIG-IP and obtain an iControl REST token
+  ansible.builtin.uri:
+    url: "https://{{ f5_server }}/mgmt/shared/authn/login"
+    method: POST
+    body_format: json
+    body:
+      username: "{{ f5_username }}"
+      password: "{{ f5_password }}"
+      loginProviderName: "{{ f5_login_provider_name | default('tmos') }}"
+    validate_certs: false
+    status_code: 200
+    no_log: "{{ demo_no_log | default(true) }}"
+  register: f5_auth_login
+  tags:
+    - f5
+    - authenticate
+
+- name: Build the reusable F5 token header set for subsequent REST calls
+  ansible.builtin.set_fact:
+    f5_auth_token: "{{ f5_auth_login.json.token.token }}"
+    f5_auth_headers:
+      X-F5-Auth-Token: "{{ f5_auth_login.json.token.token }}"
+      Content-Type: application/json
+  no_log: "{{ demo_no_log | default(true) }}"
+  tags:
+    - f5
+    - authenticate

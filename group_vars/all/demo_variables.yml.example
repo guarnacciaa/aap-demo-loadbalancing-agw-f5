@@ -239,6 +239,16 @@ agw_backend_pool_name: CHANGE_ME
 f5_server: CHANGE_ME
 f5_username: admin
 
+# Login provider name for the BIG-IP token-based authentication flow
+# (POST /mgmt/shared/authn/login) used by tasks/f5_authenticate.yml. Basic
+# Auth against /mgmt/tm/... does not authenticate on every BIG-IP — some
+# environments require this token endpoint instead, matching the configured
+# auth partition name for f5_username. "tmos" (the default, and BIG-IP's own
+# local database) works for most local accounts; set this to the name of the
+# configured remote auth partition (LDAP/RADIUS/TACACS+) if f5_username is a
+# remote-authenticated account instead.
+f5_login_provider_name: tmos
+
 # f5_pool_name / f5_partition / f5_pool_member_port are [LAB/DEV ONLY]: the
 # only consumers are Setup - F5 pool member / Teardown - F5 pool member,
 # which need an explicit pool identity to create the VERY FIRST membership

@@ -38,7 +38,9 @@
 #     field by splitting on the last ':', which assumes IPv4 addresses,
 #     matching the IPv4-only scope of the rest of this demo.
 #
-# Requires: f5_server, f5_username, f5_password, target_vm_ip.
+# Requires: f5_server, f5_username, f5_password, target_vm_ip. Authenticates
+# via tasks/f5_authenticate.yml (token-based, not Basic Auth — see that
+# file's header for why).
 # Sets: f5_discovered_pool_members (list of {pool, partition, port} dicts;
 # empty list when the IP is not currently a member of any visible pool).
 ---
@@ -56,13 +58,20 @@
 - name: Discover pool/partition/port from BIG-IP when no fixed pool override was supplied
   when: f5_pool_name is not defined or f5_pool_name | length == 0
   block:
+    # Basic Auth against /mgmt/tm/... does not authenticate f5_username on
+    # this environment — mint an iControl REST token first (see
+    # f5_authenticate.yml) and present it as X-F5-Auth-Token instead.
+    - name: Authenticate to F5 BIG-IP before querying the pool collection
+      ansible.builtin.include_tasks: f5_authenticate.yml
+      tags:
+        - f5
+        - discover
+
     - name: Query every F5 BIG-IP LTM pool with its members expanded inline
       ansible.builtin.uri:
         url: "https://{{ f5_server }}/mgmt/tm/ltm/pool/?expandSubcollections=true"
         method: GET
-        user: "{{ f5_username }}"
-        password: "{{ f5_password }}"
-        force_basic_auth: true
+        headers: "{{ f5_auth_headers }}"
         validate_certs: false
         status_code: 200
       register: f5_pool_query
