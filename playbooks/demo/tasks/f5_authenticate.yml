@@ -27,22 +27,45 @@
 # headers dict for every ansible.builtin.uri task in this demo that talks to
 # /mgmt/tm/... directly).
 ---
-- name: Authenticate to F5 BIG-IP and obtain an iControl REST token
-  ansible.builtin.uri:
-    url: "https://{{ f5_server }}/mgmt/shared/authn/login"
-    method: POST
-    body_format: json
-    body:
-      username: "{{ f5_username }}"
-      password: "{{ f5_password }}"
-      loginProviderName: "{{ f5_login_provider_name | default('tmos') }}"
-    validate_certs: false
-    status_code: 200
-  register: f5_auth_login
-  # no_log is a task-level keyword, not a uri module parameter — it must sit
-  # at this indentation (sibling of ansible.builtin.uri/register), not inside
-  # the module's argument dict, or the uri module rejects it as unsupported.
-  no_log: "{{ demo_no_log | default(true) }}"
+- name: Authenticate to F5 BIG-IP and surface a credential-safe error on failure
+  # block/rescue, not just register + ignore_errors: a bare fatal on the
+  # no_log-protected uri task below censors the ENTIRE result — status code
+  # and error message included — leaving no way to diagnose why login failed.
+  # The rescue task re-raises with only status/msg (uri's own error text,
+  # which never echoes the request body back), while the uri task itself
+  # keeps no_log so its "invocation.module_args" — which does contain
+  # f5_username/f5_password in the request body — never reaches the log.
+  block:
+    - name: Authenticate to F5 BIG-IP and obtain an iControl REST token
+      ansible.builtin.uri:
+        url: "https://{{ f5_server }}/mgmt/shared/authn/login"
+        method: POST
+        body_format: json
+        body:
+          username: "{{ f5_username }}"
+          password: "{{ f5_password }}"
+          loginProviderName: "{{ f5_login_provider_name | default('tmos') }}"
+        validate_certs: false
+        status_code: 200
+      register: f5_auth_login
+      # no_log is a task-level keyword, not a uri module parameter — it must
+      # sit at this indentation (sibling of ansible.builtin.uri/register),
+      # not inside the module's argument dict, or the uri module rejects it
+      # as unsupported.
+      no_log: "{{ demo_no_log | default(true) }}"
+      tags:
+        - f5
+        - authenticate
+  rescue:
+    - name: Fail with a credential-safe diagnostic instead of the censored result
+      ansible.builtin.fail:
+        msg: >-
+          F5 BIG-IP authentication to https://{{ f5_server }}/mgmt/shared/authn/login
+          failed (HTTP {{ f5_auth_login.status | default('n/a') }}):
+          {{ f5_auth_login.msg | default('no additional details returned') }}
+      tags:
+        - f5
+        - authenticate
   tags:
     - f5
     - authenticate
