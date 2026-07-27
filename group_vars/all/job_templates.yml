@@ -7,16 +7,17 @@
 # Dispatch role reads controller_templates (not controller_job_templates).
 #
 # IMPORTANT — lb_backend_type/target_vm_hostname below are STANDALONE-LAUNCH
-# DEFAULTS, not fixed behavior. When a template runs as a node inside
-# WF - Disconnect/Reconnect VM from load balancer, the workflow survey
-# answers for these same two keys are passed as prompted extra_vars, which
-# AAP applies with higher precedence and override the defaults set here —
-# see the survey_spec in group_vars/all/workflow_templates.yml. Launching an
-# LB - * template directly from the AAP UI (bypassing the workflow) instead
-# always runs it against the AGW VM (lb_backend_type: agw,
-# target_vm_hostname: agw_vm_hostname) unless you explicitly override both at
-# launch — for example to exercise the F5 VM standalone. See
-# docs/procedures.md for worked CLI examples of both cases.
+# DEFAULTS, not fixed behavior. Every LB - * template also carries its own
+# survey_spec (below) covering the same identity variables as the workflow
+# survey, so a standalone launch from the AAP UI prompts for them with the
+# fixed extra_vars pre-filled as the survey question default — leaving a
+# question blank at launch keeps the corresponding extra_vars value here.
+# When a template runs as a node inside WF - Disconnect/Reconnect VM from
+# load balancer, AAP does not re-prompt this per-template survey: the
+# workflow's OWN survey answers (see group_vars/all/workflow_templates.yml)
+# are passed as prompted extra_vars, which take precedence over both the
+# defaults below and this file's survey_spec. See docs/procedures.md for
+# worked CLI examples of overriding these at launch.
 #
 # azure_auth_mode is threaded through extra_vars on every Azure-facing
 # template below for a different, unrelated reason: playbooks/demo/*.yml run
@@ -47,6 +48,20 @@ controller_templates:
       - "{{ f5_credential_name }}"
     labels:
       - "{{ demo_label_name }}"
+    # No lb_backend_type/target_vm_ip question: this playbook always checks
+    # both Azure (via the VM's NIC) and F5 in one run — see
+    # lb_precheck_connectivity.yml.
+    survey_enabled: true
+    survey_spec:
+      name: LB connectivity check survey
+      description: Optionally override the VM used for the Azure-side reachability check.
+      spec:
+        - variable: target_vm_hostname
+          question_name: Target VM hostname
+          question_description: Leave blank to use the configured AGW VM ({{ agw_vm_hostname }}).
+          type: text
+          default: "{{ agw_vm_hostname }}"
+          required: false
 
   - name: LB - Pool status preview (dry run)
     organization: "{{ demo_organization_name }}"
@@ -71,6 +86,38 @@ controller_templates:
       - "{{ f5_credential_name }}"
     labels:
       - "{{ demo_label_name }}"
+    survey_enabled: true
+    # Anchored so every other LB - * template below that shares the same
+    # lb_backend_type/target_vm_hostname/target_vm_ip identity variables
+    # reuses this exact spec instead of repeating it — mirrors the survey
+    # already used by both WF - Disconnect/Reconnect workflows (see
+    # group_vars/all/workflow_templates.yml), scoped to a single template.
+    # required: false on every question: leaving one blank at launch keeps
+    # this template's own extra_vars default above (documented in the file
+    # header) instead of failing the launch.
+    survey_spec: &lb_target_survey
+      name: LB target survey
+      description: Select the load balancer backend type and target VM for this standalone run.
+      spec:
+        - variable: lb_backend_type
+          question_name: Load balancer type (agw or f5)
+          question_description: Leave blank to use this template's default (agw).
+          type: multiplechoice
+          choices:
+            - agw
+            - f5
+          default: agw
+          required: false
+        - variable: target_vm_hostname
+          question_name: Target VM hostname
+          question_description: Leave blank to use the configured AGW VM ({{ agw_vm_hostname }}).
+          type: text
+          default: "{{ agw_vm_hostname }}"
+          required: false
+        - variable: target_vm_ip
+          question_name: Target VM private IP (optional — auto-resolved from the hostname above when left blank)
+          type: text
+          required: false
 
   - name: LB - Verify VM in pool
     organization: "{{ demo_organization_name }}"
@@ -93,6 +140,8 @@ controller_templates:
       - "{{ f5_credential_name }}"
     labels:
       - "{{ demo_label_name }}"
+    survey_enabled: true
+    survey_spec: *lb_target_survey
 
   - name: LB - Verify connection status
     organization: "{{ demo_organization_name }}"
@@ -113,6 +162,8 @@ controller_templates:
       - "{{ f5_credential_name }}"
     labels:
       - "{{ demo_label_name }}"
+    survey_enabled: true
+    survey_spec: *lb_target_survey
 
   - name: LB - Drain and disconnect VM
     organization: "{{ demo_organization_name }}"
@@ -134,6 +185,8 @@ controller_templates:
       - "{{ f5_credential_name }}"
     labels:
       - "{{ demo_label_name }}"
+    survey_enabled: true
+    survey_spec: *lb_target_survey
 
   - name: LB - Reconnect VM to pool
     organization: "{{ demo_organization_name }}"
@@ -154,6 +207,8 @@ controller_templates:
       - "{{ f5_credential_name }}"
     labels:
       - "{{ demo_label_name }}"
+    survey_enabled: true
+    survey_spec: *lb_target_survey
 
   - name: LB - Collect results
     organization: "{{ demo_organization_name }}"

@@ -20,7 +20,7 @@ ansible-playbook playbooks/aap_config.yml -i inventory.yml --vault-id @prompt
 
 ## Standalone job template launches (AAP UI)
 
-Every `LB - *` job template can be launched directly from AAP **Templates**, outside either workflow. Its `extra_vars` default `lb_backend_type: agw` and `target_vm_hostname: agw_vm_hostname`, so a standalone launch always targets the AGW VM unless you override both prompts at launch (survey answers, or the CLI `-e` flags used in the examples below, take precedence over these defaults — see `group_vars/all/job_templates.yml`). To exercise the F5 VM standalone, prompt/override `lb_backend_type=f5` and `target_vm_hostname=<F5 VM hostname>` explicitly.
+Every `LB - *` job template can be launched directly from AAP **Templates**, outside either workflow. Each one also has its own survey (mirroring the workflow survey, scoped to that template — see `group_vars/all/job_templates.yml`), so launching from the UI prompts for `lb_backend_type` and `target_vm_hostname` (and, where applicable, an optional `target_vm_ip` override) with the AGW defaults pre-filled. Leaving a question unanswered keeps the template's own `extra_vars` default (`lb_backend_type: agw`, `target_vm_hostname: agw_vm_hostname`); no question is `required`, so the launch never fails even without touching the survey. To exercise the F5 VM standalone, either answer the survey with `lb_backend_type=f5` / `target_vm_hostname=<F5 VM hostname>`, or pass the equivalent CLI `-e` flags shown below (both take precedence over the defaults).
 
 ## Dry run checks (optional)
 
