@@ -24,52 +24,23 @@
     # and the AGW/F5 branches below.
 
   tasks:
+    # Shared AGW/F5 discovery — see tasks/resolve_lb_target.yml. Every
+    # demo/lb_*.yml playbook includes this same file instead of repeating the
+    # branch inline, so the discovery logic only exists in one place.
+    - name: Resolve the target VM's current AGW/F5 backend state
+      ansible.builtin.include_tasks: tasks/resolve_lb_target.yml
+      tags:
+        - agw
+        - f5
+        - reconnect
+
     - name: Add VM back to Application Gateway backend pool
       when: lb_backend_type == 'agw'
-      block:
-        - name: Resolve the target VM's NIC and its current/saved Application Gateway backend pool association
-          ansible.builtin.include_tasks: tasks/agw_discover_from_nic.yml
-          tags:
-            - agw
-            - reconnect
-
-        - name: Use the target VM's discovered NIC IP unless an explicit override was supplied
-          ansible.builtin.set_fact:
-            target_vm_ip: "{{ target_vm_ip | default(agw_discovered_private_ip) }}"
-          tags:
-            - agw
-            - reconnect
-
-        - name: Re-attach the target VM NIC to its saved Application Gateway backend pool
-          ansible.builtin.include_tasks: tasks/agw_membership_update.yml
-          vars:
-            agw_membership_state: present
-          tags:
-            - agw
-            - reconnect
-
-    - name: Resolve the target VM's private IP from Azure unless an explicit override was supplied
-      ansible.builtin.include_tasks: tasks/resolve_vm_private_ip.yml
-      when:
-        - lb_backend_type == 'f5'
-        - target_vm_ip is not defined
+      ansible.builtin.include_tasks: tasks/agw_membership_update.yml
+      vars:
+        agw_membership_state: present
       tags:
-        - f5
-        - reconnect
-
-    - name: Use the auto-resolved private IP unless an explicit override was supplied
-      ansible.builtin.set_fact:
-        target_vm_ip: "{{ target_vm_ip | default(resolved_vm_private_ip) }}"
-      when: lb_backend_type == 'f5'
-      tags:
-        - f5
-        - reconnect
-
-    - name: Discover every F5 pool membership for the target VM's IP
-      ansible.builtin.include_tasks: tasks/f5_discover_pool_from_ip.yml
-      when: lb_backend_type == 'f5'
-      tags:
-        - f5
+        - agw
         - reconnect
 
     - name: Fail fast when the target VM's IP is not a member of any F5 pool to re-enable

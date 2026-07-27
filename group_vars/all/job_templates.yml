@@ -5,6 +5,25 @@
 # they are safe in both lab/dev (self-provisioned) and customer/PoC
 # (bring-your-own) deployments.
 # Dispatch role reads controller_templates (not controller_job_templates).
+#
+# IMPORTANT — lb_backend_type/target_vm_hostname below are STANDALONE-LAUNCH
+# DEFAULTS, not fixed behavior. When a template runs as a node inside
+# WF - Disconnect/Reconnect VM from load balancer, the workflow survey
+# answers for these same two keys are passed as prompted extra_vars, which
+# AAP applies with higher precedence and override the defaults set here —
+# see the survey_spec in group_vars/all/workflow_templates.yml. Launching an
+# LB - * template directly from the AAP UI (bypassing the workflow) instead
+# always runs it against the AGW VM (lb_backend_type: agw,
+# target_vm_hostname: agw_vm_hostname) unless you explicitly override both at
+# launch — for example to exercise the F5 VM standalone. See
+# docs/procedures.md for worked CLI examples of both cases.
+#
+# azure_auth_mode is threaded through extra_vars on every Azure-facing
+# template below for a different, unrelated reason: playbooks/demo/*.yml run
+# against AAP's generated inventory, which does not reliably auto-load
+# group_vars/all/demo_variables.yml. Without azure_auth_mode in extra_vars,
+# the auth_source Jinja on every azure_rm_* task would silently fall back to
+# the service_principal branch even when azure_auth_mode: msi is configured.
 controller_templates:
   - name: LB - Connectivity check (dry run)
     organization: "{{ demo_organization_name }}"
@@ -19,11 +38,6 @@ controller_templates:
       # playbooks/demo/tasks/agw_discover_from_nic.yml) — there is no fixed
       # agw_name to pass here.
       target_vm_hostname: "{{ agw_vm_hostname }}"
-      # Without this, the azure_rm_appgateway_info task's auth_source Jinja
-      # always resolves to the service_principal branch (silently ignoring a
-      # real azure_auth_mode: msi), because group_vars/all/ is not reliably
-      # auto-loaded for playbooks/demo/*.yml when AAP supplies its own
-      # generated inventory instead of this project's inventory.yml.
       azure_auth_mode: "{{ azure_auth_mode }}"
       # No f5_pool_name/f5_partition to pass here: the F5 branch below
       # proves API reachability generically instead of checking one fixed
@@ -48,8 +62,6 @@ controller_templates:
       # tasks/agw_discover_from_nic.yml / tasks/resolve_vm_private_ip.yml).
       target_vm_hostname: "{{ agw_vm_hostname }}"
       azure_resource_group: "{{ azure_resource_group }}"
-      # See the comment on LB - Connectivity check above: this playbook also
-      # branches on azure_auth_mode and must receive it via extra_vars.
       azure_auth_mode: "{{ azure_auth_mode }}"
       # No f5_pool_name/f5_partition/f5_pool_member_port to pass here: the F5
       # branch discovers pool, partition, and port from the target IP at
@@ -71,8 +83,6 @@ controller_templates:
       lb_backend_type: agw
       target_vm_hostname: "{{ agw_vm_hostname }}"
       azure_resource_group: "{{ azure_resource_group }}"
-      # See the comment on LB - Connectivity check above: this playbook also
-      # branches on azure_auth_mode and must receive it via extra_vars.
       azure_auth_mode: "{{ azure_auth_mode }}"
       # The F5 branch (lb_backend_type: f5) discovers pool/partition/port
       # from the target IP at runtime — see

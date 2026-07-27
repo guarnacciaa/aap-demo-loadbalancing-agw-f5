@@ -1,4 +1,19 @@
-# Description: Collect structured workflow results from prior job artifacts/stats.
+# Description: Publish a final structured summary for the load balancer
+# workflows by reading the facts prior nodes in the SAME workflow already
+# published via ansible.builtin.set_stats (lb_verify_presence,
+# lb_verify_status, lb_drain_disconnect, lb_reconnect, lb_backend_type,
+# target_vm_hostname, target_vm_ip, f5_discovered_pool_members). AAP merges
+# every ancestor node's set_stats data, plus the workflow's own launch
+# extra_vars (survey answers), into this node's variables automatically
+# ("workflow artifacts") — this playbook does not call the Controller API to
+# fetch prior job results; it only reads facts that arrive as ordinary
+# Ansible variables.
+#
+# Runs as the last node of both WF - Disconnect and WF - Reconnect VM from
+# load balancer (see group_vars/all/workflow_templates.yml). When launched
+# standalone (outside either workflow), none of the upstream facts are
+# defined — every reference below falls back to a clear default so this
+# playbook never fails, it just reports less.
 ---
 - name: Collect load balancer operation results
   hosts: localhost
@@ -7,12 +22,35 @@
     - ansible.builtin
 
   tasks:
-    - name: Build result summary payload
+    # lb_drain_disconnect / lb_reconnect are only defined when the
+    # corresponding node actually ran earlier in the SAME workflow path — see
+    # the file header note on workflow artifact chaining. Distinguishing them
+    # lets one summary format serve both workflows.
+    - name: Determine which scenario action ran earlier in this workflow, if any
+      ansible.builtin.set_fact:
+        lb_action_taken: >-
+          {%- if lb_drain_disconnect is defined -%}
+          drain_disconnect
+          {%- elif lb_reconnect is defined -%}
+          reconnect
+          {%- else -%}
+          none (standalone run, or launched before any scenario action node)
+          {%- endif %}
+      tags:
+        - collect
+
+    - name: Build result summary payload from prior workflow node facts
       ansible.builtin.set_fact:
         lb_operation_summary:
           timestamp: "{{ ansible_date_time.iso8601 }}"
           workflow_job_id: "{{ tower_job_id | default('local-run') }}"
-          message: Load balancer workflow step completed. Review prior node artifacts for details.
+          action: "{{ lb_action_taken }}"
+          backend_type: "{{ lb_backend_type | default('unknown') }}"
+          target_vm_hostname: "{{ target_vm_hostname | default('unknown') }}"
+          target_vm_ip: "{{ target_vm_ip | default('unknown') }}"
+          verify_presence: "{{ lb_verify_presence | default('not run') }}"
+          verify_status: "{{ lb_verify_status | default('not run') }}"
+          f5_pool_memberships: "{{ f5_discovered_pool_members | default([]) }}"
       tags:
         - collect
 

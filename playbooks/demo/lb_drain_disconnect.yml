@@ -26,22 +26,19 @@
     drain_poll_interval: "{{ drain_poll_interval | default(15) | int }}"
 
   tasks:
+    # Shared AGW/F5 discovery — see tasks/resolve_lb_target.yml. Every
+    # demo/lb_*.yml playbook includes this same file instead of repeating the
+    # branch inline, so the discovery logic only exists in one place.
+    - name: Resolve the target VM's current AGW/F5 backend state
+      ansible.builtin.include_tasks: tasks/resolve_lb_target.yml
+      tags:
+        - agw
+        - f5
+        - drain
+
     - name: Drain and remove VM from Application Gateway backend pool
       when: lb_backend_type == 'agw'
       block:
-        - name: Resolve the target VM's NIC and its live Application Gateway backend pool association
-          ansible.builtin.include_tasks: tasks/agw_discover_from_nic.yml
-          tags:
-            - agw
-            - drain
-
-        - name: Use the target VM's discovered NIC IP unless an explicit override was supplied
-          ansible.builtin.set_fact:
-            target_vm_ip: "{{ target_vm_ip | default(agw_discovered_private_ip) }}"
-          tags:
-            - agw
-            - drain
-
         - name: Detach the target VM NIC and persist the removed association for a later reconnect
           ansible.builtin.include_tasks: tasks/agw_membership_update.yml
           vars:
@@ -61,26 +58,6 @@
     - name: Drain and disable F5 pool member
       when: lb_backend_type == 'f5'
       block:
-        - name: Resolve the target VM's private IP from Azure unless an explicit override was supplied
-          ansible.builtin.include_tasks: tasks/resolve_vm_private_ip.yml
-          when: target_vm_ip is not defined
-          tags:
-            - f5
-            - drain
-
-        - name: Use the auto-resolved private IP unless an explicit override was supplied
-          ansible.builtin.set_fact:
-            target_vm_ip: "{{ target_vm_ip | default(resolved_vm_private_ip) }}"
-          tags:
-            - f5
-            - drain
-
-        - name: Discover every F5 pool membership for the target VM's IP
-          ansible.builtin.include_tasks: tasks/f5_discover_pool_from_ip.yml
-          tags:
-            - f5
-            - drain
-
         - name: Fail fast when the target VM's IP is not currently a member of any F5 pool
           ansible.builtin.assert:
             that:

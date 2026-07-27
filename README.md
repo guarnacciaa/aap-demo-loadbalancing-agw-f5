@@ -140,6 +140,8 @@ The **Setup** and **Teardown** templates are only created in AAP when `demo_mana
 | Teardown - Azure infrastructure | `setup/01_azure_teardown.yml` | Lab/dev only |
 | Teardown - F5 pool member | `setup/02_f5_teardown.yml` | Lab/dev only |
 
+**Standalone launch default:** every `LB - *` template above ships `ask_variables_on_launch: true` so it can also be launched directly from the AAP UI, without going through either workflow. When launched this way, `lb_backend_type`/`target_vm_hostname` fall back to the fixed defaults set in `group_vars/all/job_templates.yml` (`agw` / `agw_vm_hostname`) — a standalone launch always targets the **AGW** VM unless you explicitly override both values at launch. Inside `WF - Disconnect/Reconnect VM from load balancer`, the workflow survey answers for these same two keys take precedence and select the backend/VM instead (see [How to run the demo](#how-to-run-the-demo)).
+
 ### Dry-run / preview templates
 
 Read-only checks, useful in both deployment modes. Wired as the first two nodes of both scenario workflows (ahead of any mutating task) and also launchable standalone.

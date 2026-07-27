@@ -69,7 +69,10 @@
     - name: Assert the Application Gateway was found, when a live NIC association exists
       ansible.builtin.assert:
         that:
-          - agw_connectivity_check.applicationgateways | length == 1
+          # azure_rm_appgateway_info registers its result list under "gateways",
+          # not "applicationgateways" — verified against this module's actual
+          # runtime output (see docs/testing.md for the confirming run).
+          - agw_connectivity_check.gateways | length == 1
         fail_msg: >-
           Application Gateway {{ agw_discovered_name }} (resolved from VM
           {{ target_vm_hostname }}'s NIC) was not reachable in resource

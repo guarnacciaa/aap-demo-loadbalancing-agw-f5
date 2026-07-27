@@ -18,6 +18,10 @@ ansible-playbook playbooks/aap_config.yml -i inventory.yml --vault-id @prompt
 2. Provide the same survey values used for disconnect.
 3. Observe nodes: connectivity check → pool status preview → reconnect → verify status → collect results.
 
+## Standalone job template launches (AAP UI)
+
+Every `LB - *` job template can be launched directly from AAP **Templates**, outside either workflow. Its `extra_vars` default `lb_backend_type: agw` and `target_vm_hostname: agw_vm_hostname`, so a standalone launch always targets the AGW VM unless you override both prompts at launch (survey answers, or the CLI `-e` flags used in the examples below, take precedence over these defaults — see `group_vars/all/job_templates.yml`). To exercise the F5 VM standalone, prompt/override `lb_backend_type=f5` and `target_vm_hostname=<F5 VM hostname>` explicitly.
+
 ## Dry run checks (optional)
 
 Read-only; never create, modify, or delete any resource. Run these before either

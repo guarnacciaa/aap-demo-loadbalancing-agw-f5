@@ -161,6 +161,17 @@ azure_resource_group: CHANGE_ME
 # explicit override — for example if a VM has multiple NICs and the wrong
 # one is auto-detected, or the pool member address must differ from the
 # VM's primary private IP for some other reason.
+#
+# Relationship to target_vm_hostname: every demo/lb_*.yml playbook (and the
+# WF - Disconnect/Reconnect survey) takes a generic target_vm_hostname
+# instead of reading agw_vm_hostname/f5_vm_hostname directly, so one set of
+# playbooks/job templates works against either VM depending on the selected
+# lb_backend_type. group_vars/all/job_templates.yml pins target_vm_hostname
+# to agw_vm_hostname as the STANDALONE-LAUNCH default for every LB - *
+# template (so launching one directly from the AAP UI, outside a workflow,
+# always targets the AGW VM) — see the header comment in that file. Pass
+# -e target_vm_hostname=<f5 VM> -e lb_backend_type=f5 explicitly (or answer
+# the workflow survey with the F5 VM) to act on f5_vm_hostname instead.
 
 # VM connected to AGW
 agw_vm_hostname: azure-vm-agw01

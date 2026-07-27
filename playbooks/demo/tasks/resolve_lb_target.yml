@@ -1,0 +1,52 @@
+# Description: Resolve the current AGW backend pool state (via NIC discovery)
+# or F5 pool membership state (via IP discovery) for the target VM, branching
+# on lb_backend_type. Centralizes the discovery steps that every demo/lb_*.yml
+# playbook needs before running its own backend-specific action (report,
+# assert, drain, or reconnect) — see agw_discover_from_nic.yml,
+# resolve_vm_private_ip.yml, and f5_discover_pool_from_ip.yml for the
+# individual lookups this file sequences.
+#
+# This is an include_tasks file, not a role — see the note in
+# agw_discover_from_nic.yml on why roles/ is not a reliable search path for
+# AAP-launched playbooks/demo/*.yml.
+#
+# Requires (already mandatory in every including playbook): lb_backend_type,
+# target_vm_hostname. target_vm_ip is an optional override, consumed here and
+# left set for callers.
+# Sets (agw): agw_discovered_* facts (see agw_discover_from_nic.yml),
+#   target_vm_ip.
+# Sets (f5): f5_discovered_pool_members, target_vm_ip.
+---
+- name: Resolve Application Gateway backend pool state from the target VM's NIC
+  when: lb_backend_type == 'agw'
+  block:
+    - name: Resolve the target VM's NIC and its live/saved Application Gateway backend pool association
+      ansible.builtin.include_tasks: agw_discover_from_nic.yml
+      tags:
+        - agw
+
+    - name: Use the target VM's discovered NIC IP unless an explicit override was supplied
+      ansible.builtin.set_fact:
+        target_vm_ip: "{{ target_vm_ip | default(agw_discovered_private_ip) }}"
+      tags:
+        - agw
+
+- name: Resolve F5 pool membership state from the target VM's IP
+  when: lb_backend_type == 'f5'
+  block:
+    - name: Resolve the target VM's private IP from Azure unless an explicit override was supplied
+      ansible.builtin.include_tasks: resolve_vm_private_ip.yml
+      when: target_vm_ip is not defined
+      tags:
+        - f5
+
+    - name: Use the auto-resolved private IP unless an explicit override was supplied
+      ansible.builtin.set_fact:
+        target_vm_ip: "{{ target_vm_ip | default(resolved_vm_private_ip) }}"
+      tags:
+        - f5
+
+    - name: Discover every F5 pool membership for the target VM's IP
+      ansible.builtin.include_tasks: f5_discover_pool_from_ip.yml
+      tags:
+        - f5

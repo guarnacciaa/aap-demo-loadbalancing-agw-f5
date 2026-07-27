@@ -41,71 +41,45 @@
     # docs/setup.md#application-gateway-backend-discovery.
 
   tasks:
-    - name: Preview Application Gateway backend pool membership
+    # Shared AGW/F5 discovery — see tasks/resolve_lb_target.yml. Every
+    # demo/lb_*.yml playbook includes this same file instead of repeating the
+    # branch inline, so the discovery logic only exists in one place.
+    - name: Resolve the target VM's current AGW/F5 backend state
+      ansible.builtin.include_tasks: tasks/resolve_lb_target.yml
+      tags:
+        - agw
+        - f5
+        - preview
+
+    - name: Report AGW pool preview
       when: lb_backend_type == 'agw'
-      block:
-        - name: Resolve the target VM's NIC and any live or saved Application Gateway backend pool association
-          ansible.builtin.include_tasks: tasks/agw_discover_from_nic.yml
-          tags:
-            - agw
-            - preview
-
-        - name: Use the target VM's discovered NIC IP unless an explicit override was supplied
-          ansible.builtin.set_fact:
-            target_vm_ip: "{{ target_vm_ip | default(agw_discovered_private_ip) }}"
-          tags:
-            - agw
-            - preview
-
-        - name: Report AGW pool preview
-          ansible.builtin.debug:
-            msg: >-
-              {{
-                'VM ' + target_vm_hostname + ' is currently PRESENT — its NIC is attached to Application Gateway '
-                + agw_discovered_name + ' / pool ' + agw_discovered_pool_name + '. Drain/disconnect will remove it.'
-                if (agw_discovered_pool_ids_live | length > 0)
-                else (
-                  'VM ' + target_vm_hostname + ' is currently ABSENT from any Application Gateway backend pool. '
-                  + 'Reconnect will restore its NIC to Application Gateway ' + agw_discovered_saved_name
-                  + ' / pool ' + agw_discovered_saved_pool_name + ' (from saved state).'
-                  if (agw_discovered_pool_id_saved | length > 0)
-                  else (
-                    'VM ' + target_vm_hostname + ' is currently ABSENT and no previously saved Application Gateway '
-                    + 'association was found on this VM. Run drain/disconnect first, or attach the NIC to the '
-                    + 'desired backend pool manually before relying on reconnect.'
-                  )
-                )
-              }}
-          tags:
-            - agw
-            - preview
+      vars:
+        # Built as a set_fact with a Jinja if/elif/else block, rather than a
+        # nested inline ternary in the debug msg itself, for readability —
+        # three mutually exclusive report strings depending on live/saved
+        # association state.
+        agw_preview_message: >-
+          {% if agw_discovered_pool_ids_live | length > 0 -%}
+          VM {{ target_vm_hostname }} is currently PRESENT — its NIC is attached to Application Gateway
+          {{ agw_discovered_name }} / pool {{ agw_discovered_pool_name }}. Drain/disconnect will remove it.
+          {%- elif agw_discovered_pool_id_saved | length > 0 -%}
+          VM {{ target_vm_hostname }} is currently ABSENT from any Application Gateway backend pool.
+          Reconnect will restore its NIC to Application Gateway {{ agw_discovered_saved_name }}
+          / pool {{ agw_discovered_saved_pool_name }} (from saved state).
+          {%- else -%}
+          VM {{ target_vm_hostname }} is currently ABSENT and no previously saved Application Gateway
+          association was found on this VM. Run drain/disconnect first, or attach the NIC to the
+          desired backend pool manually before relying on reconnect.
+          {%- endif %}
+      ansible.builtin.debug:
+        msg: "{{ agw_preview_message }}"
+      tags:
+        - agw
+        - preview
 
     - name: Preview F5 pool member state
       when: lb_backend_type == 'f5'
       block:
-        - name: Resolve the target VM's private IP from Azure unless an explicit override was supplied
-          ansible.builtin.include_tasks: tasks/resolve_vm_private_ip.yml
-          when: target_vm_ip is not defined
-          tags:
-            - f5
-            - preview
-
-        - name: Use the auto-resolved private IP unless an explicit override was supplied
-          ansible.builtin.set_fact:
-            target_vm_ip: "{{ target_vm_ip | default(resolved_vm_private_ip) }}"
-          tags:
-            - f5
-            - preview
-
-        # Discovery itself is a read-only report of current membership — no
-        # further "does it exist" call is needed, unlike the previous fixed
-        # single-pool lookup, since discovery already covers every pool.
-        - name: Discover every F5 pool membership for the target VM's IP
-          ansible.builtin.include_tasks: tasks/f5_discover_pool_from_ip.yml
-          tags:
-            - f5
-            - preview
-
         # Pre-formatted here (rather than inline in the debug message below)
         # because Jinja2 has no list-comprehension syntax to build
         # "partition/pool:port" strings from a list of dicts in one expression.
@@ -120,21 +94,22 @@
             - preview
 
         - name: Report F5 pool member preview
+          vars:
+            # Same rationale as the AGW report above: an if/else Jinja block
+            # instead of a nested inline ternary.
+            f5_preview_message: >-
+              {% if f5_discovered_pool_members | length > 0 -%}
+              VM {{ target_vm_hostname }} ({{ target_vm_ip }}) is currently PRESENT in
+              {{ f5_discovered_pool_members | length }} F5 pool(s): {{ f5_discovered_pool_summary | default([]) | join(', ') }}
+              — drain/disconnect will change all of them.
+              {%- else -%}
+              VM {{ target_vm_hostname }} ({{ target_vm_ip }}) is currently ABSENT from every F5
+              pool visible to the configured API credential — reconnect will restore it only if it
+              was a member before (bigip_pool_member disable does not remove the record; a
+              never-provisioned VM has no membership to restore).
+              {%- endif %}
           ansible.builtin.debug:
-            msg: >-
-              {{
-                'VM ' + target_vm_hostname + ' (' + target_vm_ip + ') is currently PRESENT in '
-                + (f5_discovered_pool_members | length | string) + ' F5 pool(s): '
-                + (f5_discovered_pool_summary | default([]) | join(', '))
-                + ' — drain/disconnect will change all of them.'
-                if (f5_discovered_pool_members | length > 0)
-                else (
-                  'VM ' + target_vm_hostname + ' (' + target_vm_ip + ') is currently ABSENT from every F5 '
-                  + 'pool visible to the configured API credential — reconnect will restore it only if it '
-                  + 'was a member before (bigip_pool_member disable does not remove the record; a '
-                  + 'never-provisioned VM has no membership to restore).'
-                )
-              }}
+            msg: "{{ f5_preview_message }}"
           tags:
             - f5
             - preview
