@@ -137,19 +137,35 @@
     - agw
     - membership
 
-- name: Clear the saved Application Gateway backend pool tag now that the association is restored
-  # Tags cannot be truly removed via a single-key update on this module
-  # without resending every other tag, so this empties the value instead —
-  # sufficient to distinguish "no saved state" (used by the assert above)
-  # from a real saved resource ID.
+- name: Compute the VM's tags with the saved Application Gateway backend pool tag removed
+  # append_tags (below) can only add/overwrite keys, never delete one, so the
+  # only way to truly remove agw_state_tag_key is to resend the VM's full tag
+  # set with append_tags: false, minus that one key. agw_discovered_vm_info
+  # was already read by agw_discover_from_nic.yml earlier in this same play,
+  # so this reuses that snapshot instead of querying Azure again.
+  ansible.builtin.set_fact:
+    agw_tags_without_state_key: >-
+      {{ (agw_discovered_vm_info.vms[0].tags | default({}, true))
+         | dict2items
+         | rejectattr('key', 'equalto', agw_state_tag_key)
+         | items2dict }}
+  when:
+    - agw_membership_state == 'present'
+    - agw_discovered_pool_ids_live | length == 0
+  tags:
+    - agw
+    - membership
+
+- name: Remove the saved Application Gateway backend pool tag now that the association is restored
   azure.azcollection.azure_rm_virtualmachine:
     name: "{{ target_vm_hostname }}"
     resource_group: "{{ azure_resource_group }}"
-    append_tags: true
-    # See the matching comment in the detach task above: the whole dict must
-    # be built as a single Jinja expression so agw_state_tag_key is used as
-    # the actual tag key instead of being sent literally.
-    tags: "{{ {agw_state_tag_key: ''} }}"
+    # append_tags: false replaces the whole tag set instead of merging with
+    # it — required to actually delete agw_state_tag_key, since a merge
+    # update can only add or overwrite keys. Every other pre-existing tag is
+    # preserved as-is via agw_tags_without_state_key above.
+    append_tags: false
+    tags: "{{ agw_tags_without_state_key }}"
     auth_source: "{{ 'msi' if (azure_auth_mode | default('service_principal') == 'msi') else omit }}"
     state: present
   when:
