@@ -58,6 +58,8 @@ These same raw REST calls authenticate via a BIG-IP iControl REST token (`playbo
 
 `azure_auth_mode` must be threaded through `extra_vars` on every Azure-facing job template (already done in `group_vars/all/job_templates.yml` / `job_templates_infra.yml`): `playbooks/demo/*.yml` and `playbooks/setup/*.yml` run against AAP's generated inventory, which does not reliably auto-load `group_vars/all/demo_variables.yml`.
 
+The same gap affects `demo_no_log`: every job template whose playbook reaches `tasks/f5_authenticate.yml` also threads `demo_no_log` through `extra_vars`, otherwise the F5 login task's `no_log` always falls back to `true` regardless of what `demo_variables.yml` sets — see [docs/setup.md](docs/setup.md#f5-pool-and-partition-discovery).
+
 ## Deployment modes
 
 `demo_manage_infrastructure` in `demo_variables.yml` (default `true`) controls how much of the AAP catalog this CasC creates:

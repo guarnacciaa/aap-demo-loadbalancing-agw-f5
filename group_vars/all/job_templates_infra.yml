@@ -36,6 +36,13 @@ controller_templates_infra:
     ask_variables_on_launch: true
     credentials:
       - "{{ f5_credential_name }}"
+    extra_vars:
+      # This playbook authenticates via tasks/f5_authenticate.yml, which is
+      # also affected by the group_vars/all/demo_variables.yml auto-load gap
+      # described above for azure_auth_mode — thread demo_no_log through
+      # extra_vars for the same reason (see group_vars/all/job_templates.yml
+      # header for the full explanation).
+      demo_no_log: "{{ demo_no_log }}"
     labels:
       - "{{ demo_label_name }}"
 
@@ -64,5 +71,10 @@ controller_templates_infra:
     ask_variables_on_launch: true
     credentials:
       - "{{ f5_credential_name }}"
+    extra_vars:
+      # See the comment on Setup - F5 pool member above: this playbook also
+      # authenticates via tasks/f5_authenticate.yml and must receive
+      # demo_no_log via extra_vars for the same reason.
+      demo_no_log: "{{ demo_no_log }}"
     labels:
       - "{{ demo_label_name }}"

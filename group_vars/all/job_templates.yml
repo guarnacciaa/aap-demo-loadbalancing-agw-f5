@@ -25,6 +25,14 @@
 # group_vars/all/demo_variables.yml. Without azure_auth_mode in extra_vars,
 # the auth_source Jinja on every azure_rm_* task would silently fall back to
 # the service_principal branch even when azure_auth_mode: msi is configured.
+#
+# demo_no_log is threaded through extra_vars on every template below whose
+# playbook can reach tasks/f5_authenticate.yml (directly, or via
+# tasks/resolve_lb_target.yml -> tasks/f5_discover_pool_from_ip.yml when
+# lb_backend_type: f5) for the exact same reason: without it, every
+# "{{ demo_no_log | default(true) }}" in f5_authenticate.yml falls back to
+# true and the F5 login task stays censored even when demo_no_log: false is
+# set in demo_variables.yml.
 controller_templates:
   - name: LB - Connectivity check (dry run)
     organization: "{{ demo_organization_name }}"
@@ -40,6 +48,7 @@ controller_templates:
       # agw_name to pass here.
       target_vm_hostname: "{{ agw_vm_hostname }}"
       azure_auth_mode: "{{ azure_auth_mode }}"
+      demo_no_log: "{{ demo_no_log }}"
       # No f5_pool_name/f5_partition to pass here: the F5 branch below
       # proves API reachability generically instead of checking one fixed
       # pool — see the file header note in lb_precheck_connectivity.yml.
@@ -78,6 +87,7 @@ controller_templates:
       target_vm_hostname: "{{ agw_vm_hostname }}"
       azure_resource_group: "{{ azure_resource_group }}"
       azure_auth_mode: "{{ azure_auth_mode }}"
+      demo_no_log: "{{ demo_no_log }}"
       # No f5_pool_name/f5_partition/f5_pool_member_port to pass here: the F5
       # branch discovers pool, partition, and port from the target IP at
       # runtime — see playbooks/demo/tasks/f5_discover_pool_from_ip.yml.
@@ -131,6 +141,7 @@ controller_templates:
       target_vm_hostname: "{{ agw_vm_hostname }}"
       azure_resource_group: "{{ azure_resource_group }}"
       azure_auth_mode: "{{ azure_auth_mode }}"
+      demo_no_log: "{{ demo_no_log }}"
       # The F5 branch (lb_backend_type: f5) discovers pool/partition/port
       # from the target IP at runtime — see
       # playbooks/demo/tasks/f5_discover_pool_from_ip.yml — no fixed
@@ -155,6 +166,7 @@ controller_templates:
       target_vm_hostname: "{{ agw_vm_hostname }}"
       azure_resource_group: "{{ azure_resource_group }}"
       azure_auth_mode: "{{ azure_auth_mode }}"
+      demo_no_log: "{{ demo_no_log }}"
       # See the comment on LB - Verify VM in pool above: the F5 branch
       # discovers pool/partition/port from the target IP at runtime.
     credentials:
@@ -178,6 +190,7 @@ controller_templates:
       azure_resource_group: "{{ azure_resource_group }}"
       drain_wait_timeout: "{{ drain_wait_timeout }}"
       azure_auth_mode: "{{ azure_auth_mode }}"
+      demo_no_log: "{{ demo_no_log }}"
       # See the comment on LB - Verify VM in pool above: the F5 branch
       # discovers pool/partition/port from the target IP at runtime.
     credentials:
@@ -200,6 +213,7 @@ controller_templates:
       target_vm_hostname: "{{ agw_vm_hostname }}"
       azure_resource_group: "{{ azure_resource_group }}"
       azure_auth_mode: "{{ azure_auth_mode }}"
+      demo_no_log: "{{ demo_no_log }}"
       # See the comment on LB - Verify VM in pool above: the F5 branch
       # discovers pool/partition/port from the target IP at runtime.
     credentials:
