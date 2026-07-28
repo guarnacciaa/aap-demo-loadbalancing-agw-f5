@@ -12,6 +12,11 @@
 # automatically from f5_vm_hostname via tasks/resolve_vm_private_ip.yml (same
 # lookup as 02_f5_setup.yml, so this removes the exact same address it added).
 #
+# f5_node_name must match whatever 02_f5_setup.yml actually registered the
+# member's node as (same rationale as f5_pool_member_port above) — set it
+# here too if it was set at setup time, so this removes the exact same
+# object instead of attempting to resolve a differently-named one.
+#
 # Run command:
 #   ansible-playbook playbooks/setup/02_f5_teardown.yml \
 #     -e demo_teardown_confirm=true --vault-id @prompt
@@ -68,6 +73,7 @@
         pool: "{{ f5_pool_name }}"
         partition: "{{ f5_partition }}"
         address: "{{ f5_vm_private_ip }}"
+        name: "{{ f5_node_name | default(omit) }}"
         port: "{{ f5_pool_member_port | default(80) }}"
         state: absent
         provider:

@@ -7,7 +7,10 @@
 # target IP (see tasks/f5_discover_pool_from_ip.yml) and applies
 # forced_offline then disabled to each one — a node can be a member of
 # several pools at once, and leaving any of them enabled would keep routing
-# traffic to the VM.
+# traffic to the VM. Every bigip_pool_member call also passes the
+# discovered node_name (not just address): see the comment on the
+# forced_offline task below for why this is required whenever the target
+# pool names its members after the VM's hostname rather than its IP.
 ---
 - name: Drain and disconnect VM from load balancer
   hosts: localhost
@@ -97,6 +100,15 @@
             pool: "{{ item.pool }}"
             partition: "{{ item.partition }}"
             address: "{{ target_vm_ip }}"
+            # Passing the real node name (see tasks/f5_discover_pool_from_ip.yml)
+            # is required whenever the pool's member is named after the VM's
+            # hostname rather than its IP: without it, bigip_pool_member
+            # derives an IP-based name from `address` alone, fails to match
+            # the existing hostname-named node, and attempts to CREATE a new
+            # member instead of modifying the existing one — which many
+            # restricted BIG-IP automation accounts correctly reject with
+            # "does not have create access to object (pool_member)".
+            name: "{{ item.node_name if (item.node_name | default('') | length > 0) else omit }}"
             port: "{{ item.port }}"
             state: forced_offline
             provider:
@@ -129,6 +141,8 @@
             pool: "{{ item.pool }}"
             partition: "{{ item.partition }}"
             address: "{{ target_vm_ip }}"
+            # See the rationale comment on the forced_offline task above.
+            name: "{{ item.node_name if (item.node_name | default('') | length > 0) else omit }}"
             port: "{{ item.port }}"
             state: disabled
             provider:

@@ -276,6 +276,20 @@ f5_partition: Common
 # different port (for example an HTTPS-only backend on 443).
 # f5_pool_member_port: 80
 
+# f5_node_name is an optional override, relevant only to Setup/Teardown - F5
+# pool member and to the f5_pool_name bypass at launch above. BIG-IP names
+# the underlying node object independently of its IP address; many real
+# environments name nodes after the VM's hostname (e.g. "SECOPSTEST02UAT")
+# instead of its address. Leave unset to keep the default, address-derived
+# node name. Every LB - * scenario template does NOT need this set even when
+# the target pool uses hostname-based node names: it discovers the real node
+# name automatically per-VM at runtime (see
+# docs/setup.md#f5-pool-and-partition-discovery). Set it here only when
+# bypassing discovery entirely via -e f5_pool_name=..., or when
+# Setup - F5 pool member must create a member matching an existing
+# hostname-based naming convention.
+# f5_node_name: CHANGE_ME
+
 # ============================================================================
 # Demo operational settings [ALWAYS REQUIRED]
 # ============================================================================

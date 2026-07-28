@@ -6,7 +6,10 @@
 # F5: bigip_pool_member with state forced_offline/disabled never removes the
 # member record itself, so the membership(s) discovered by
 # lb_drain_disconnect.yml are still discoverable here (see
-# tasks/f5_discover_pool_from_ip.yml) — every discovered pool is re-enabled.
+# tasks/f5_discover_pool_from_ip.yml) — every discovered pool is re-enabled,
+# passing the discovered node_name so hostname-named members are matched
+# correctly instead of triggering an accidental create attempt (see the
+# rationale comment in tasks/f5_discover_pool_from_ip.yml).
 # Fails clearly if the IP was never a member of any pool at all.
 ---
 - name: Reconnect VM to load balancer pool
@@ -82,6 +85,9 @@
         pool: "{{ item.pool }}"
         partition: "{{ item.partition }}"
         address: "{{ target_vm_ip }}"
+        # See tasks/f5_discover_pool_from_ip.yml's header for why this must
+        # be the discovered node name, not just the address.
+        name: "{{ item.node_name if (item.node_name | default('') | length > 0) else omit }}"
         port: "{{ item.port }}"
         state: enabled
         provider:

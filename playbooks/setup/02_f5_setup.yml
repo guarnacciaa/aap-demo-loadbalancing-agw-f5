@@ -9,6 +9,13 @@
 # f5_vm_private_ip is an optional override; when not set it is resolved
 # automatically from f5_vm_hostname via tasks/resolve_vm_private_ip.yml
 # (the same Azure VM/NIC lookup used by the demo/lb_*.yml F5 branch).
+# f5_node_name is a further optional override: when left unset,
+# bigip_pool_member names the created node after f5_vm_private_ip (the
+# previous, and still default, behavior). Set it when the target
+# environment's convention is to name BIG-IP nodes after the VM's hostname
+# instead — see the node-naming rationale in
+# demo/tasks/f5_discover_pool_from_ip.yml, which is what every LB - *
+# scenario template relies on to find this same member again later.
 #
 # Prerequisites:
 #   - F5 BIG-IP reachable at f5_server with f5_username/f5_password credentials.
@@ -75,6 +82,7 @@
         pool: "{{ f5_pool_name }}"
         partition: "{{ f5_partition }}"
         address: "{{ f5_vm_private_ip }}"
+        name: "{{ f5_node_name | default(omit) }}"
         port: "{{ f5_pool_member_port | default(80) }}"
         state: present
         provider:

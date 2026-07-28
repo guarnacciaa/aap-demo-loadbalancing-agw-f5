@@ -1,6 +1,14 @@
 # Description: Verify connection/member status for AGW backend (via the
 # target VM's NIC) or every discovered F5 pool member (see
 # tasks/f5_discover_pool_from_ip.yml).
+#
+# The F5 check below passes the discovered node_name (not just address) to
+# bigip_pool_member: without it, and specifically for pools that name their
+# members after the VM's hostname rather than its IP, the check_mode
+# "exists" lookup would fail to match the real object and report a false
+# "changed: true" (i.e. falsely reported as DISABLED/OFFLINE) even for a
+# genuinely enabled member — see the rationale comment in
+# tasks/f5_discover_pool_from_ip.yml.
 ---
 - name: Verify load balancer connection status for target VM
   hosts: localhost
@@ -92,6 +100,7 @@
         pool: "{{ item.pool }}"
         partition: "{{ item.partition }}"
         address: "{{ target_vm_ip }}"
+        name: "{{ item.node_name if (item.node_name | default('') | length > 0) else omit }}"
         port: "{{ item.port }}"
         state: enabled
         provider:

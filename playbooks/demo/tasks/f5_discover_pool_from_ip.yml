@@ -29,7 +29,33 @@
 # action to one specific pool even when the node is a member of several),
 # discovery is skipped entirely and a single fixed pool/partition/port
 # match is used instead, falling back to f5_partition: Common and
-# f5_pool_member_port: 80 when those are also left unset.
+# f5_pool_member_port: 80 when those are also left unset. f5_node_name is a
+# further optional override for this same bypass path — see the node name
+# vs. address note below; leave it unset when the target pool's members are
+# named after their IP address (the common case).
+#
+# Why node_name is captured (not just pool/partition/port): BIG-IP pool
+# members are internally backed by a "node" object, and a node's name is
+# independent of its address — many real deployments name nodes after the
+# VM's hostname (e.g. "SECOPSTEST02UAT:80") rather than its IP
+# ("10.233.166.73:80"). f5networks.f5_modules.bigip_pool_member's own `name`
+# parameter is documented as "Name of the node to create OR RE-USE"; when a
+# caller omits `name` (as every lb_*.yml task did before this field
+# existed), the module derives an expected name from `address` alone. If the
+# real node is hostname-named, that derived name never matches the existing
+# node, so the module concludes the member does not exist and attempts to
+# CREATE a brand-new, IP-named one instead of modifying the existing
+# hostname-named member — an operation many restricted BIG-IP automation
+# accounts are correctly denied ("does not have create access to object
+# (pool_member)"), even though the very same account can toggle the
+# EXISTING member's state from the GUI without issue. Capturing the real
+# node name here (parsed the same way as the port, by splitting the
+# member's own "name" field on its last ':') and threading it through to
+# every bigip_pool_member call downstream (see lb_drain_disconnect.yml,
+# lb_reconnect.yml, lb_verify_status.yml) makes those calls target the
+# correct existing object regardless of the pool's naming convention. This
+# is backward compatible: for IP-named members the derived node_name equals
+# the address anyway, so passing it explicitly changes nothing.
 #
 # Limitations:
 #   - Discovery only sees partitions the F5 API credential can access — see
@@ -44,8 +70,9 @@
 # Requires: f5_server, f5_username, f5_password, target_vm_ip. Authenticates
 # via tasks/f5_authenticate.yml (token-based, not Basic Auth — see that
 # file's header for why).
-# Sets: f5_discovered_pool_members (list of {pool, partition, port} dicts;
-# empty list when the IP is not currently a member of any visible pool).
+# Sets: f5_discovered_pool_members (list of {pool, partition, port,
+# node_name} dicts; empty list when the IP is not currently a member of any
+# visible pool).
 ---
 - name: Use a fixed pool/partition/port instead of discovery when f5_pool_name is explicitly overridden
   ansible.builtin.set_fact:
@@ -53,6 +80,11 @@
       - pool: "{{ f5_pool_name }}"
         partition: "{{ f5_partition | default('Common') }}"
         port: "{{ f5_pool_member_port | default(80) }}"
+        # Empty string (not omitted) when f5_node_name is unset: downstream
+        # bigip_pool_member tasks treat an empty node_name the same as "not
+        # supplied" (falling back to address-derived naming), and a dict
+        # value cannot itself be `omit`.
+        node_name: "{{ f5_node_name | default('') }}"
   when: f5_pool_name is defined and f5_pool_name | length > 0
   tags:
     - f5
@@ -94,7 +126,12 @@
         f5_discovered_pool_members: >-
           {{
             f5_discovered_pool_members
-            + [{'pool': item[0].name, 'partition': item[0].partition, 'port': item[1].name.split(':')[-1]}]
+            + [{
+              'pool': item[0].name,
+              'partition': item[0].partition,
+              'port': item[1].name.split(':')[-1],
+              'node_name': item[1].name.rsplit(':', 1)[0]
+            }]
           }}
       # Subscript notation (['items'], not .items) is required here: Jinja's
       # dot-access tries Python attribute lookup first, and plain dicts have
