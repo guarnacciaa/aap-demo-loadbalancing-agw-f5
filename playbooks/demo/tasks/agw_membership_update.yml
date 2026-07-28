@@ -36,8 +36,14 @@
     name: "{{ target_vm_hostname }}"
     resource_group: "{{ azure_resource_group }}"
     append_tags: true
-    tags:
-      "{{ agw_state_tag_key }}": "{{ agw_discovered_pool_ids_live[0] }}"
+    # A YAML mapping key that is itself a Jinja expression (e.g. "{{
+    # agw_state_tag_key }}": value) is NOT rendered by Ansible: only mapping
+    # VALUES are templated in this context, so the module previously received
+    # the literal string "{{ agw_state_tag_key }}" as the tag's actual key,
+    # silently breaking every later lookup keyed on agw_state_tag_key's real
+    # value. Building the whole dict as a single Jinja expression forces
+    # native evaluation, so the key is resolved correctly.
+    tags: "{{ {agw_state_tag_key: agw_discovered_pool_ids_live[0]} }}"
     auth_source: "{{ 'msi' if (azure_auth_mode | default('service_principal') == 'msi') else omit }}"
     state: present
   when:
@@ -140,8 +146,10 @@
     name: "{{ target_vm_hostname }}"
     resource_group: "{{ azure_resource_group }}"
     append_tags: true
-    tags:
-      "{{ agw_state_tag_key }}": ""
+    # See the matching comment in the detach task above: the whole dict must
+    # be built as a single Jinja expression so agw_state_tag_key is used as
+    # the actual tag key instead of being sent literally.
+    tags: "{{ {agw_state_tag_key: ''} }}"
     auth_source: "{{ 'msi' if (azure_auth_mode | default('service_principal') == 'msi') else omit }}"
     state: present
   when:
