@@ -36,7 +36,10 @@
 #     docs/setup.md#f5-pool-and-partition-discovery for the required RBAC.
 #   - The member port is parsed from the member's "<address>:<port>" name
 #     field by splitting on the last ':', which assumes IPv4 addresses,
-#     matching the IPv4-only scope of the rest of this demo.
+#     matching the IPv4-only scope of the rest of this demo. An assert right
+#     after the parsing loop below fails with a clear diagnostic (instead of
+#     a confusing downstream bigip_pool_member error) when this parsing
+#     produces a non-numeric port — the expected symptom for an IPv6 member.
 #
 # Requires: f5_server, f5_username, f5_password, target_vm_ip. Authenticates
 # via tasks/f5_authenticate.yml (token-based, not Basic Auth — see that
@@ -69,7 +72,7 @@
 
     - name: Query every F5 BIG-IP LTM pool with its members expanded inline
       ansible.builtin.uri:
-        url: "https://{{ f5_server }}/mgmt/tm/ltm/pool/?expandSubcollections=true"
+        url: "https://{{ f5_server }}:{{ f5_resolved_management_port }}/mgmt/tm/ltm/pool/?expandSubcollections=true"
         method: GET
         headers: "{{ f5_auth_headers }}"
         validate_certs: false
@@ -102,6 +105,34 @@
       loop_control:
         label: "{{ item[0].partition }}/{{ item[0].name }}"
       when: item[1].address == target_vm_ip
+      tags:
+        - f5
+        - discover
+
+    # Guards the IPv4-only limitation documented in this file's header: BIG-IP
+    # names an IPv6 member "<address>.<port>" (dot separator, since an IPv6
+    # address already contains ":") instead of "<address>:<port>". Splitting
+    # such a name on the last ":" silently returns a garbage, non-numeric
+    # "port" (a fragment of the address itself) instead of failing — which
+    # would otherwise only surface much later as a confusing validation error
+    # from bigip_pool_member, with no obvious link back to the real cause.
+    - name: Fail clearly when a discovered member's port could not be parsed as a number
+      ansible.builtin.assert:
+        that:
+          - item.port is defined
+          - item.port | string is regex('^[0-9]+$')
+        fail_msg: >-
+          Could not parse a numeric port for the F5 pool member matching
+          {{ target_vm_ip }} in {{ item.partition }}/{{ item.pool }}
+          (parsed value: "{{ item.port }}"). This demo parses the port from
+          the member's "<address>:<port>" name field, which only works for
+          IPv4 members — an IPv6 member would be named "<address>.<port>"
+          instead (dot separator) and is not supported. Check the member's
+          actual name in the F5 GUI (Local Traffic > Pools > {{ item.pool }}
+          > Members) or via the API (partition {{ item.partition }}).
+      loop: "{{ f5_discovered_pool_members }}"
+      loop_control:
+        label: "{{ item.partition }}/{{ item.pool }}:{{ item.port }}"
       tags:
         - f5
         - discover

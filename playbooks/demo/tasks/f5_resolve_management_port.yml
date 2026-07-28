@@ -1,0 +1,87 @@
+# Description: Determine which port F5 BIG-IP's iControl REST management API
+# actually listens on, and cache it as f5_resolved_management_port for the
+# rest of the play. Every ansible.builtin.uri task in this demo that talks to
+# /mgmt/tm/... or /mgmt/shared/... directly, and every provider.server_port
+# passed to a f5networks.f5_modules task, reads this one resolved value
+# instead of guessing independently.
+#
+# Decision: this varies by deployment and cannot be asked of BIG-IP itself
+# without already knowing how to reach it (a chicken-and-egg problem) — so
+# this probes TCP reachability instead of hard-coding a single port. Physical
+# and standalone VE appliances typically expose iControl REST on 443, but
+# BIG-IP VE marketplace/lab images commonly reserve 443 for the data-plane
+# virtual server and move the management GUI/REST API to 8443 instead
+# (confirmed against the f5-bd-ansible-labs workshop's own lab inventory,
+# which sets provider.server_port: 8443 for exactly this reason). Probing is
+# a one-time cost per play (cached below), not a per-task cost.
+#
+# What would invalidate this: an F5 deployment whose management REST API is
+# on neither 443 nor 8443 (uncommon, but possible with a custom SSL profile
+# on the management interface) — set f5_management_port explicitly in that
+# case to skip probing entirely. Also invalidated by a network path that
+# silently drops (rather than resets/refuses) packets to closed ports, which
+# makes an unreachable port indistinguishable from a slow one until the probe
+# timeout elapses; f5_management_port_probe_timeout_seconds exists to tune
+# that without editing this file.
+#
+# Requires: f5_server. Optional: f5_management_port (skips probing entirely
+# when set), f5_management_port_fallback (default 8443),
+# f5_management_port_probe_timeout_seconds (default 5).
+# Sets: f5_resolved_management_port (int). Safe to include multiple times per
+# play — every task below is skipped once this fact is already set.
+---
+- name: Use the explicitly configured F5 management port when set, skipping auto-detection
+  ansible.builtin.set_fact:
+    f5_resolved_management_port: "{{ f5_management_port }}"
+  when:
+    - f5_resolved_management_port is not defined
+    - f5_management_port is defined
+    - f5_management_port | string | length > 0
+  tags:
+    - f5
+
+- name: Probe the default iControl REST port (443) before falling back
+  ansible.builtin.wait_for:
+    host: "{{ f5_server }}"
+    port: 443
+    timeout: "{{ f5_management_port_probe_timeout_seconds | default(5) }}"
+    state: started
+  when: f5_resolved_management_port is not defined
+  register: f5_default_port_probe
+  # Only the fallback probe below is allowed to fail the play: a closed 443
+  # is expected on BIG-IP VE, not an error condition worth surfacing yet.
+  ignore_errors: true
+  tags:
+    - f5
+
+- name: Resolve to port 443 when it answered
+  ansible.builtin.set_fact:
+    f5_resolved_management_port: 443
+  when:
+    - f5_resolved_management_port is not defined
+    - not f5_default_port_probe.failed
+  tags:
+    - f5
+
+- name: Probe the common BIG-IP VE management port (8443) when 443 did not answer
+  ansible.builtin.wait_for:
+    host: "{{ f5_server }}"
+    port: "{{ f5_management_port_fallback | default(8443) }}"
+    timeout: "{{ f5_management_port_probe_timeout_seconds | default(5) }}"
+    state: started
+  # No ignore_errors here: if neither 443 nor 8443 answers, fail loudly with
+  # wait_for's own connection-refused/timed-out message pointing at the real
+  # network/firewall problem, instead of silently defaulting to a port that
+  # has already proven unreachable and surfacing a confusing auth failure
+  # later on instead.
+  when: f5_resolved_management_port is not defined
+  register: f5_fallback_port_probe
+  tags:
+    - f5
+
+- name: Resolve to the fallback port since it answered
+  ansible.builtin.set_fact:
+    f5_resolved_management_port: "{{ f5_management_port_fallback | default(8443) }}"
+  when: f5_resolved_management_port is not defined
+  tags:
+    - f5

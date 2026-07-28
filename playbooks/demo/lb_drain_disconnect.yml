@@ -81,6 +81,7 @@
             state: forced_offline
             provider:
               server: "{{ f5_server }}"
+              server_port: "{{ f5_resolved_management_port }}"
               user: "{{ f5_username }}"
               password: "{{ f5_password }}"
               validate_certs: false
@@ -112,6 +113,7 @@
             state: disabled
             provider:
               server: "{{ f5_server }}"
+              server_port: "{{ f5_resolved_management_port }}"
               user: "{{ f5_username }}"
               password: "{{ f5_password }}"
               validate_certs: false

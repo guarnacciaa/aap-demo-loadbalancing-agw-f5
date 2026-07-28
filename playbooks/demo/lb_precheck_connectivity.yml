@@ -110,7 +110,7 @@
     # the file header note on why this no longer checks one fixed pool.
     - name: Query F5 BIG-IP pool collection to confirm API reachability and authentication
       ansible.builtin.uri:
-        url: "https://{{ f5_server }}/mgmt/tm/ltm/pool/"
+        url: "https://{{ f5_server }}:{{ f5_resolved_management_port }}/mgmt/tm/ltm/pool/"
         method: GET
         headers: "{{ f5_auth_headers }}"
         validate_certs: false
@@ -124,7 +124,7 @@
       ansible.builtin.debug:
         msg: >-
           F5: authenticated and reached the LTM pool collection on
-          {{ f5_server }}
+          {{ f5_server }}:{{ f5_resolved_management_port }}
           ({{ f5_connectivity_check.json['items'] | default([]) | length }} pool(s) visible to this credential).
       tags:
         - precheck

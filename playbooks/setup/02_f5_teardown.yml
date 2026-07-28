@@ -54,6 +54,14 @@
       tags:
         - always
 
+    # This playbook talks to bigip_pool_member directly and never goes
+    # through demo/tasks/resolve_lb_target.yml, so the port must be resolved
+    # explicitly here — see demo/tasks/f5_resolve_management_port.yml.
+    - name: Resolve which port F5's iControl REST API is listening on
+      ansible.builtin.include_tasks: ../demo/tasks/f5_resolve_management_port.yml
+      tags:
+        - always
+
   tasks:
     - name: Remove VM from F5 LTM pool
       f5networks.f5_modules.bigip_pool_member:
@@ -64,6 +72,7 @@
         state: absent
         provider:
           server: "{{ f5_server }}"
+          server_port: "{{ f5_resolved_management_port }}"
           user: "{{ f5_username }}"
           password: "{{ f5_password }}"
           validate_certs: false

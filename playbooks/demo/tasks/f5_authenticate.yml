@@ -22,11 +22,20 @@
 # configured auth partition name).
 #
 # Requires: f5_server, f5_username, f5_password. Optional: f5_login_provider_name
-# (defaults to "tmos").
-# Sets: f5_auth_token (raw token string) and f5_auth_headers (ready-to-use
+# (defaults to "tmos"), f5_management_port (see f5_resolve_management_port.yml).
+# Sets: f5_auth_token (raw token string), f5_auth_headers (ready-to-use
 # headers dict for every ansible.builtin.uri task in this demo that talks to
-# /mgmt/tm/... directly).
+# /mgmt/tm/... directly), and f5_resolved_management_port (see
+# f5_resolve_management_port.yml).
 ---
+- name: Resolve which port F5's iControl REST API is listening on before authenticating
+  # Cached (see the file's own header) — a no-op on every include after the
+  # first one in the same play.
+  ansible.builtin.include_tasks: f5_resolve_management_port.yml
+  tags:
+    - f5
+    - authenticate
+
 - name: Authenticate to F5 BIG-IP and surface a credential-safe error on failure
   # block/rescue, not just register + ignore_errors: a bare fatal on the
   # no_log-protected uri task below censors the ENTIRE result — status code
@@ -38,7 +47,7 @@
   block:
     - name: Authenticate to F5 BIG-IP and obtain an iControl REST token
       ansible.builtin.uri:
-        url: "https://{{ f5_server }}/mgmt/shared/authn/login"
+        url: "https://{{ f5_server }}:{{ f5_resolved_management_port }}/mgmt/shared/authn/login"
         method: POST
         body_format: json
         body:
@@ -60,7 +69,8 @@
     - name: Fail with a credential-safe diagnostic instead of the censored result
       ansible.builtin.fail:
         msg: >-
-          F5 BIG-IP authentication to https://{{ f5_server }}/mgmt/shared/authn/login
+          F5 BIG-IP authentication to
+          https://{{ f5_server }}:{{ f5_resolved_management_port }}/mgmt/shared/authn/login
           failed (HTTP {{ f5_auth_login.status | default('n/a') }}):
           {{ f5_auth_login.msg | default('no additional details returned') }}
       tags:

@@ -15,7 +15,10 @@
 # left set for callers.
 # Sets (agw): agw_discovered_* facts (see agw_discover_from_nic.yml),
 #   target_vm_ip.
-# Sets (f5): f5_discovered_pool_members, target_vm_ip.
+# Sets (f5): f5_discovered_pool_members, target_vm_ip,
+#   f5_resolved_management_port (see f5_resolve_management_port.yml) — reused
+#   by every f5networks.f5_modules.bigip_pool_member task that runs later in
+#   the calling playbook.
 ---
 - name: Resolve Application Gateway backend pool state from the target VM's NIC
   when: lb_backend_type == 'agw'
@@ -43,6 +46,17 @@
     - name: Use the auto-resolved private IP unless an explicit override was supplied
       ansible.builtin.set_fact:
         target_vm_ip: "{{ target_vm_ip | default(resolved_vm_private_ip) }}"
+      tags:
+        - f5
+
+    # Resolved unconditionally here, not only inside f5_authenticate.yml:
+    # when f5_pool_name is explicitly overridden, f5_discover_pool_from_ip.yml
+    # skips discovery entirely and f5_authenticate.yml is never called — but
+    # the f5networks.f5_modules.bigip_pool_member tasks that run later in the
+    # calling playbook (drain/reconnect/verify_status) still need
+    # f5_resolved_management_port for their provider.server_port.
+    - name: Resolve which port F5's iControl REST API is listening on
+      ansible.builtin.include_tasks: f5_resolve_management_port.yml
       tags:
         - f5
 

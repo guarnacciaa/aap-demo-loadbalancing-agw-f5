@@ -239,6 +239,14 @@ agw_backend_pool_name: CHANGE_ME
 f5_server: CHANGE_ME
 f5_username: admin
 
+# The iControl REST management port is auto-detected (see
+# playbooks/demo/tasks/f5_resolve_management_port.yml): every F5 task probes
+# 443 first, falling back to 8443 (the port BIG-IP VE marketplace/lab images
+# commonly use for management REST, since they reserve 443 for the data-plane
+# virtual server instead). Uncomment and set only if this F5's management API
+# is on neither 443 nor 8443.
+# f5_management_port: 443
+
 # Login provider name for the BIG-IP token-based authentication flow
 # (POST /mgmt/shared/authn/login) used by tasks/f5_authenticate.yml. Basic
 # Auth against /mgmt/tm/... does not authenticate on every BIG-IP — some
@@ -284,4 +292,4 @@ drain_poll_interval: 15
 # artifact's Organization makes aap_config.yml fail with
 # "returned 2 items, expected 1". See artifact--demo-variables.mdc.
 azure_credential_name: Azure Service Principal - Load Balancing AGW F5
-f5_credential_name: F5 BIG-IP API
+f5_credential_name: F5 BIG-IP API - Load Balancing AGW F5
