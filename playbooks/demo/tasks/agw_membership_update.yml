@@ -51,7 +51,15 @@
   azure.azcollection.azure_rm_networkinterface:
     name: "{{ agw_discovered_nic_name }}"
     resource_group: "{{ agw_discovered_vm_info.vms[0].resource_group }}"
-    virtual_network_name: "{{ agw_discovered_nic_info.networkinterfaces[0].virtual_network.name }}"
+    # virtual_network must be a {name, resource_group} dict, not a bare name: this
+    # module resolves a bare virtual_network name against the NIC's OWN resource
+    # group (per its docs), but the VNet commonly lives in a separate (hub/shared)
+    # resource group, e.g. a NIC in crif-rg-patchinghq-int referencing a VNet in a
+    # different RG. A bare name silently builds a wrong subnet resource ID and
+    # fails with (InvalidResourceReference) ... was not found.
+    virtual_network:
+      name: "{{ agw_discovered_nic_info.networkinterfaces[0].virtual_network.name }}"
+      resource_group: "{{ agw_discovered_nic_info.networkinterfaces[0].virtual_network.resource_group }}"
     subnet_name: "{{ agw_discovered_nic_info.networkinterfaces[0].subnet }}"
     ip_configurations:
       - name: "{{ agw_discovered_nic_info.networkinterfaces[0].ip_configurations[0].name }}"
@@ -100,7 +108,12 @@
   azure.azcollection.azure_rm_networkinterface:
     name: "{{ agw_discovered_nic_name }}"
     resource_group: "{{ agw_discovered_vm_info.vms[0].resource_group }}"
-    virtual_network_name: "{{ agw_discovered_nic_info.networkinterfaces[0].virtual_network.name }}"
+    # See the matching comment in the detach task above: virtual_network must be a
+    # {name, resource_group} dict, since the VNet's resource group can differ from
+    # the NIC's own resource group.
+    virtual_network:
+      name: "{{ agw_discovered_nic_info.networkinterfaces[0].virtual_network.name }}"
+      resource_group: "{{ agw_discovered_nic_info.networkinterfaces[0].virtual_network.resource_group }}"
     subnet_name: "{{ agw_discovered_nic_info.networkinterfaces[0].subnet }}"
     ip_configurations:
       - name: "{{ agw_discovered_nic_info.networkinterfaces[0].ip_configurations[0].name }}"
