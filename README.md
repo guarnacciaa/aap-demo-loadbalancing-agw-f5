@@ -167,6 +167,6 @@ Read-only checks, useful in both deployment modes. Wired as the first two nodes 
 
 ## References
 
-- Red Hat AAP 2.6 documentation
-- Azure Application Gateway product documentation
-- F5 BIG-IP iControl REST API documentation
+- [Red Hat AAP 2.6 documentation](https://docs.redhat.com/en/documentation/red_hat_ansible_automation_platform/2.6)
+- [Azure Application Gateway product documentation](https://learn.microsoft.com/en-us/azure/application-gateway/overview)
+- [F5 BIG-IP iControl REST API documentation](https://clouddocs.f5.com/api/icontrol-rest/)

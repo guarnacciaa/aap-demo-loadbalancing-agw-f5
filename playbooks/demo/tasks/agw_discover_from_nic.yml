@@ -79,6 +79,15 @@
     - agw
     - discover
 
+# Surfaces the full NIC lookup result in the AAP job output for troubleshooting
+# backend pool discovery; contains no secrets, so it is safe to print unmasked.
+- name: Display the discovered network interface configuration
+  ansible.builtin.debug:
+    var: agw_discovered_nic_info
+  tags:
+    - agw
+    - discover
+
 - name: Resolve the live Application Gateway backend pool association from the NIC
   ansible.builtin.set_fact:
     agw_discovered_nic_name: "{{ agw_discovered_nic_info.networkinterfaces[0].name }}"
