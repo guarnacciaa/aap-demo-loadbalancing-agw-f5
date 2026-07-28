@@ -13,10 +13,28 @@
     - ansible.builtin
 
   vars:
-    lb_backend_type: "{{ lb_backend_type | mandatory }}"
-    target_vm_hostname: "{{ target_vm_hostname | mandatory }}"
     # target_vm_ip is an optional override: see tasks/resolve_vm_private_ip.yml
     # and the AGW/F5 blocks below.
+    #
+    # lb_backend_type/target_vm_hostname are intentionally NOT declared here
+    # as self-referencing play vars (e.g. lb_backend_type: "{{ lb_backend_type
+    # | mandatory }}"): that pattern only resolves correctly when the
+    # same-named var is already supplied by a higher-precedence source
+    # (extra_vars); when it is not supplied at all, Ansible fails with
+    # "recursive loop detected" instead of a clear "mandatory" error. They
+    # are validated explicitly in pre_tasks below instead.
+
+  pre_tasks:
+    - name: Require lb_backend_type and target_vm_hostname to be provided
+      ansible.builtin.assert:
+        that:
+          - lb_backend_type is defined
+          - target_vm_hostname is defined
+        fail_msg: >-
+          lb_backend_type and target_vm_hostname must be passed as extra vars
+          (e.g. via the job template's Prompt on Launch survey).
+      tags:
+        - always
 
   tasks:
     # Shared AGW/F5 discovery — see tasks/resolve_lb_target.yml. Every

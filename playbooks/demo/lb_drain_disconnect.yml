@@ -18,12 +18,32 @@
     - ansible.builtin
 
   vars:
-    lb_backend_type: "{{ lb_backend_type | mandatory }}"
-    target_vm_hostname: "{{ target_vm_hostname | mandatory }}"
     # target_vm_ip is an optional override: see tasks/resolve_vm_private_ip.yml
     # and the AGW/F5 branches below.
-    drain_wait_timeout: "{{ drain_wait_timeout | default(300) | int }}"
-    drain_poll_interval: "{{ drain_poll_interval | default(15) | int }}"
+    #
+    # lb_backend_type/target_vm_hostname (required) and drain_wait_timeout/
+    # drain_poll_interval (optional) are intentionally NOT declared here as
+    # "self-referencing" play vars (e.g. lb_backend_type: "{{ lb_backend_type
+    # | mandatory }}", drain_poll_interval: "{{ drain_poll_interval |
+    # default(15) }}"). That pattern only resolves correctly when the
+    # same-named var is already supplied by a higher-precedence source
+    # (extra_vars); when it is not supplied at all, Ansible fails with
+    # "recursive loop detected" instead of a clear "mandatory" error or the
+    # intended default. Required vars are validated explicitly in pre_tasks
+    # below instead, and the optional timers' `| default(...)` filters are
+    # applied directly at each point of use (the two pause tasks below).
+
+  pre_tasks:
+    - name: Require lb_backend_type and target_vm_hostname to be provided
+      ansible.builtin.assert:
+        that:
+          - lb_backend_type is defined
+          - target_vm_hostname is defined
+        fail_msg: >-
+          lb_backend_type and target_vm_hostname must be passed as extra vars
+          (e.g. via the job template's Prompt on Launch survey).
+      tags:
+        - always
 
   tasks:
     # Shared AGW/F5 discovery — see tasks/resolve_lb_target.yml. Every
@@ -49,7 +69,7 @@
 
         - name: Wait for AGW connection drain window
           ansible.builtin.pause:
-            seconds: "{{ drain_poll_interval }}"
+            seconds: "{{ drain_poll_interval | default(15) | int }}"
           when: agw_discovered_pool_ids_live | length > 0
           tags:
             - agw
@@ -99,7 +119,7 @@
 
         - name: Wait for F5 connection drain to complete
           ansible.builtin.pause:
-            seconds: "{{ drain_wait_timeout }}"
+            seconds: "{{ drain_wait_timeout | default(300) | int }}"
           tags:
             - f5
             - drain

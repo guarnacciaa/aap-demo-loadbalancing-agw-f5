@@ -28,20 +28,27 @@
     - azure.azcollection
     - ansible.builtin
 
-  vars:
-    target_vm_hostname: "{{ target_vm_hostname | mandatory }}"
-
   pre_tasks:
+    # target_vm_hostname is intentionally NOT declared as a self-referencing
+    # play var (e.g. target_vm_hostname: "{{ target_vm_hostname | mandatory
+    # }}"): that pattern only resolves correctly when the same-named var is
+    # already supplied by a higher-precedence source (extra_vars); when it is
+    # not supplied at all, Ansible fails with "recursive loop detected"
+    # instead of a clear "mandatory" error. It is validated explicitly below
+    # instead, alongside the other required connectivity check variables.
     - name: Validate required connectivity check variables
       ansible.builtin.assert:
         that:
+          - target_vm_hostname is defined
           - azure_resource_group is defined
           - azure_resource_group != "CHANGE_ME"
           - f5_server is defined
           - f5_server != "CHANGE_ME"
         fail_msg: >-
-          Set azure_resource_group and f5_server in demo_variables.yml and
-          re-apply aap_config.yml before running connectivity checks.
+          target_vm_hostname must be passed as an extra var (e.g. via the job
+          template's Prompt on Launch survey). Set azure_resource_group and
+          f5_server in demo_variables.yml and re-apply aap_config.yml before
+          running connectivity checks.
       tags:
         - always
 
